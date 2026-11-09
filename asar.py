@@ -251,7 +251,7 @@ def extract(asar_path, dest_dir, with_unpacked=True):
 
 def list_files(asar_path):
     """列出 asar 内所有文件（相对路径）。"""
-    header = _read_header(asar_path)
+    header, _, _ = _read_header(asar_path)
     out = []
 
     def walk(node, rel):

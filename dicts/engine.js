@@ -658,7 +658,14 @@
     [/^Yes, and always allow '([\s\S]+)' when not in a project$/i, '是，且在非项目时始终允许 \'$1\''],
     [/^Yes, and always allow '([\s\S]+)'$/i, '是，且始终允许 \'$1\''],
     [/^Yes, allow '([\s\S]+)' this time$/i, '是，仅允许本次执行 \'$1\''],
-    [/^Yes, allow '([\s\S]+)'$/i, '是，允许 \'$1\'']
+    [/^Yes, allow '([\s\S]+)'$/i, '是，允许 \'$1\''],
+    // --- 归档通知与会话列表筛选 ---
+    [/^View archived in the sidebar \((.+)\)\.?$/i, '在侧边栏查看已归档（$1）。'],
+    [/^View archived in the sidebar\s*\(/i, '在侧边栏查看已归档 ('],
+    [/^View archived in the sidebar$/i, '在侧边栏查看已归档'],
+    [/^menu\)\.$/i, '菜单）。'],
+    [/^menu\)$/i, '菜单)'],
+    [/^(\d+) archived conversations?$/i, '$1 个已归档会话']
   ];
 
   function translateString(text) {
