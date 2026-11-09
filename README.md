@@ -1,174 +1,93 @@
-# 🀄 谷歌反重力汉化插件（antigravity-zh）
+# 🀄 Antigravity 中文汉化增强版（antigravity-zh）
 
-为 **Google Antigravity** 桌面客户端（Agent Manager）注入中文翻译的**零依赖**安装器。
-纯 Python 实现，无需 Node.js / npm / asar 工具，一键安装、一键还原。
+为 **Google Antigravity** 桌面客户端（Agent Manager）打造的高性能、无侵入式、防误翻的中文汉化补丁。
+纯 Python 标准库实现，无需 Node.js / npm 等外部依赖，一键安装、即时生效、一键还原。
 
-> ⚠️ 非官方语言包。本工具会修改本地 `app.asar`，安装前自动备份，可随时还原。
-> Antigravity 官方升级会覆盖补丁，升级后重新运行安装脚本即可。
+> ⚠️ 非 Google 官方语言包。本工具通过本地安全注入方式注入汉化引擎，安装前自动备份官方原版 `app.asar.bak`，可随时一键无损还原。
+> Antigravity 官方客户端升级后会覆盖本地文件，升级后重新运行本脚本即可。
 
-## ✨ 特性
+---
 
-- **零外部依赖**：纯 Python 标准库，`python3 install.py` 即装即用
-- **全界面汉化**：主界面、设置面板、侧边栏、弹窗、错误提示全覆盖（**5982 条词条 + 动态正则规则**）
-- **原生菜单 / 托盘翻译**：顶部菜单栏（File/Edit/View…）与系统托盘菜单一并汉化
-- **原生弹窗 / 加载画面**：退出确认弹窗、启动加载画面等主进程原生 UI 一并汉化
-- **跨平台**：macOS / Windows / Linux 自动探测安装路径
-- **自动备份**：首次安装自动备份原版 `app.asar.bak`
-- **一键还原**：`--restore` 恢复官方原版
-- **macOS 自动重签名**：解决修改后“应用已损坏”问题
-- **保留专有名词**：模型名（Claude Sonnet 4.6 (Thinking)）、斜杠命令（/goal）、品牌名保留英文
+## ✨ 核心特性
 
-## 📥 安装
+- 🚀 **高性能重构（0 卡顿）**：
+  - 重构了原版遍历匹配算法，引入预编译组合正则与 $O(1)$ 大小写哈希索引，彻底解决原版打开“设置”或长会话时主线程严重冻结卡死的问题。
+- 🛡️ **深度防误翻与代码隔离**：
+  - **单单词小写实体保护**：独创首字母大小写语境隔离，用户项目名（如 `project`）、目录名（如 `workspace`）、代码变量与脚本名 100% 保持英文原貌，永不误伤。
+  - **命令行与终端免疫**：深度遍历 `<pre>`、`<code>` 祖先树，支持 `.xterm` 终端仿真器隔离，消除 Shell 脚本（如 `|| true` 变 `|| 真`）被篡改的风险。
+  - **智能体动态内容保护**：智能体执行摘要（`toolSummary`）与思考链（Chain of Thought）原生保留，避免碎片化中英混排。
+  - **快捷指令纯净原生**：隔离 `/` 指令与 `@` 提及下拉菜单，快捷指令与描述保持官方英文原版。
+- 🌐 **深度覆盖 Antigravity 2.29+**：
+  - 词库扩展至 **6,200+ 条高质量词条**，完整覆盖内置浏览器、语音模式（Voice Mode / Gemini Live）、对话步骤（Verbose）、无障碍、声音设置及远程智能体协同面板。
+  - 专业级术语校对：统一“思考深度 (Reasoning Effort)”、“轮次 (Turn)”、“派生分支 (Fork)”、“工件 (Artifact)”，剔除生硬机翻。
+- ⚡ **零重启热重载支持**：
+  - 自动创建并监听外部词典 `~/.antigravity-zh/zh-CN.json`，随时修改字典，保存即时热刷新页面，无需重新打包。
+- 📦 **纯 Python 零依赖跨平台**：
+  - 纯 Python 实现 ASAR 解包与打包，自动探测 Linux / macOS / Windows 安装路径。
+  - macOS 自动进行 ad-hoc 代码重签名，避免“应用已损坏”弹窗。
+
+---
+
+## 📥 快速开始
+
+### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/zhonghugo/antigravity-zh.git
+git clone https://github.com/shadowzhz/antigravity-zh.git
 cd antigravity-zh
+```
 
-# 安装汉化（自动探测路径）
+### 2. 安装汉化
+
+> **提示**：安装前请先退出 Antigravity 客户端。
+
+```bash
+# 自动探测路径并安装
 python3 install.py
 
-# 指定路径安装
-python3 install.py --asar "/自定义路径/Contents/Resources/app.asar"
+# 也可以手动指定 app.asar 路径安装（如自定义安装目录）
+python3 install.py --asar "/path/to/resources/app.asar"
+```
 
-# 还原官方原版
+### 3. 一键还原官方原版
+
+```bash
 python3 install.py --restore
+```
 
-# 查看状态
+### 4. 查看当前状态
+
+```bash
 python3 install.py --status
 ```
 
-> 安装前请先完全退出 Antigravity（脚本会检测并提示）。
+---
 
-## 🧩 工作原理
+## ⚙️ 外部词典即时热重载
 
-1. 解包 `app.asar`
-2. 向 `dist/preload.js` 与 `dist/ideInstall/wizardPreload.js` 注入 DOM 翻译引擎
-   （MutationObserver 实时监听 + 5982 条中英词典，属性/placeholder/title 一并翻译）
-3. 向 `dist/menu.js` 注入原生菜单翻译、`dist/tray.js` 注入托盘菜单翻译
-4. 向 `dist/main.js` 注入退出确认弹窗翻译、`dist/loadingOverlay.js` 注入启动加载画面翻译
-5. 重新打包（`chrome-devtools-mcp` 保持 unpacked，不影响功能）
-6. macOS 自动 ad-hoc 重签名
+安装后，引擎会自动在您的用户家目录生成外部扩展词典：
+- **路径**：`~/.antigravity-zh/zh-CN.json`
 
-## 📁 项目结构
+只要您使用文本编辑器修改并保存该文件，运行中的 Antigravity 客户端会在 200ms 内**自动热重载新词条并无缝刷新当前界面**，无需重启客户端，也无需重新运行安装脚本！
 
-```
+---
+
+## 🧩 目录结构
+
+```text
 antigravity-zh/
-├── install.py          # 主安装器（安装/还原/状态）
-├── asar.py             # 纯 Python asar 解包/打包库
+├── install.py          # 跨平台一键安装 / 还原 / 检测主程序
+├── asar.py             # 纯 Python 编写的 ASAR 解包与打包引擎
 ├── dicts/
-│   ├── zh_cn.json      # 5982 条全量翻译词典
-│   └── engine.js       # DOM 翻译引擎模板（含 __DICT_ITEMS__ 占位符与动态正则规则）
-├── SKILL.md            # AI 智能体技能说明（可直接作为豆包工作 Skill 使用）
-└── LICENSE             # MIT
+│   ├── engine.js       # 运行时 DOM 翻译引擎（注入至 preload.js）
+│   └── zh_cn.json      # 全量内嵌汉化词典（6,200+ 词条）
+├── SKILL.md            # Antigravity 智能体专属 Skill 描述
+└── README.md           # 项目文档
 ```
 
-## 📝 更新日志
+---
 
-### v1.3.1（2026-10-21）
+## 📜 开源协议与致谢
 
-* 思考链正文保持英文：`thinking-collapsible` / `planner-response-text` / `artifact-view`
-  容器与 `.cursor-edit` 编辑预览整块跳过翻译——模型生成的自由文本不逐词硬翻，
-  无法整句翻译时保持英文原样，避免中英夹杂；「已思考 X 秒」触发药丸是系统 UI，放行汉化
-* 修复：`fmtDuration` 相邻单位间缺空格（`1 小时2 分` → `1 小时 2 分`），
-  `Worked for` / `Thought for` 动态块改走 `fmtDuration`，支持 `1d2h3m4.5s` 混合单位
-* 修复：`Permanently delete ...` 尾部 ASCII 句点未转全角（`永久删除 Old Tasks.` → `永久删除 Old Tasks。`）
-
-### v1.3.0（2026-10-13）
-
-* 词典：1855 → 5982 条。系统性对比 7 个社区汉化项目（Antigravity-Chinese-Localization、
-  Antigravity-Hans、Antigravity-zh-CN、antigravity-chinese、antigravity-chinese-locale、
-  antigravity-chinese-Zero-Touch、AntigravityCN），合并其词典精华并统一术语
-  （工件/审查/沙箱/分叉/自定义扩展/额度/智能体），过滤 URL、占位符不匹配、
-  超长条目与污染 key（AntigravityCN 有 61 条 key 被其引擎部分翻译后存回词典的中英混合串）
-* 引擎新增动态正则规则层（dynamicRules）：约 100 条整串锚定规则，覆盖 N 前/重置倒计时、
-  配额提示、日期时间（Jan 5 - Mar 10、10:30 AM）、永久删除确认、快捷键提示、
-  分屏/终端/模型选择等动态文案；在词典精确匹配之后执行，不劫持已校对词条
-* 引擎新增 `fmtDuration`：`Worked for 1h2m` → `已工作 1 小时 2 分`（紧凑时长自动补空格）
-* 引擎短句翻译门槛改为"全部单词已知"（词均在词典中才输出翻译），替代原 80% 字符覆盖率，
-  消除 "Failed to run" → "已失败 to 运行" 式中英夹杂
-* 吸收 Zero-Touch 项目补充规则：`5m ago` 紧凑时间、`showing X of Y`、`Fold lines`、
-  `Run command: X`、`Load older messages` 等；`Close (Esc)` 等缺失词条
-* 吸收 AntigravityCN 项目补充规则：`Thinking (X)`、`N searches`、`N% remaining`、
-  纯数量短语（`45 minutes` / `3 days`）等；补齐 Hourly/Daily Limit 剩余额度等缺失词条
-* 修复：统一「子代理」→「子智能体」（保留网络代理 Proxy 语义的 15 条不受影响）
-* 修复（重要）：install.py 旧格式引擎升级时会产生**重复引擎块**——旧引擎在前先翻译，
-  新词典永不生效。现改为从第一个引擎起点到文件尾整体重建，历史重复块一并清除
-
-### v1.2.0（2026-10-06）
-
-* 词典：1583 → 1831 条。基于实际 UI 代码（main bundle）提取漏翻词条，补齐插件市场、
-  反馈问卷、加载/状态提示、查找替换栏、附件标签、调度频率等场景
-* 修复：统一核心术语——Artifact 工件、Worktree 工作树、Sandbox 沙箱、Review 审查、
-  Fork 分叉、订阅 plan 套餐，并区分 quota（配额）与 credits（额度）
-* 修复：清除约 20 条冗余英文括注（如"默认 (Default)"），主题名 Catppuccin/Dracula 保留原名
-* 修复：引擎内置词典与 `zh_cn.json` 多处同键不同值（内置优先导致词典修改不生效），已全部对齐
-* 修复：coreWords 移除 `for→持续`、`worked→工作了`、`thought→思考了`、`explored→浏览了`、
-  `js→Js` 等易把正常语句拼成乱码的词条（对应的动态状态正则已覆盖）
-* 修复：`Worked for 2m 30s` / `Thought for 1h` 类时长状态支持分钟/小时并转换单位（此前仅支持秒）
-* 词典：1831 → 1855 条。补齐设置页技能/插件的描述翻译（Gemini API、
-  Antigravity SDK、Sepia、agy-customizations 等本机已装项），以及
-  Plugins/Plugin/Automations/Preview 栏目标题与"Plugin: xxx"徽章
-* 修复：设置页技能/插件英文描述被逐词替换成中英夹杂（如"multi-回合聊天"、
-  "their 正在加载 priority"）。引擎新增覆盖率门槛——长句命中不足 65%、
-  短句不足 80% 时保持原文不再硬翻；连字符复合词（agy-customizations、
-  text-to-video 等）不再被拆词误翻
-* 修复：词典更新后重装不生效——重装时按 TAG 判断"已注入"直接跳过，导致新旧词典
-  同标签时永不更新。现改为整体重建追加的引擎块（顺带刷新内置词典 / coreWords / 动态规则），
-  内容无变化时才跳过
-* 修复：`• Asks for Review` 词条错贴为另一条描述的译文
-
-### v1.1.1（2026-09-07）
-
-* 修复：macOS 重签名目标路径错误（多算一层目录导致签名到 /Applications 而非 .app，签名始终失败）
-* 修复：`app.asar` 替换改为同目录暂存 + `os.replace` 原子替换，失败自动回滚 unpacked，避免中断产生损坏文件
-* 修复：asar 文件头校验语义（首字段是 pickle payload 长度而非版本号），增加 pickle_size 合理性检查
-* 修复：`check_app_running` 误报（`pgrep -f Antigravity` 会匹配命令行含该词的任意进程，如打开本仓库的编辑器）
-* 优化：翻译引擎预排序词典缓存，避免每次翻译重复 `Object.keys/filter/sort`
-* 词典：`Operation not permitted` 去除冗余英文括注
-
-### v1.1.0（2026-09-06）
-- 修复：命令权限弹窗标题/警告行未翻译（补 8 条词条）
-- 修复：动态拼接选项（如 `Yes, and always allow '<cmd>' in this conversation`）部分翻译
-- 修复：长文本子串匹配仅支持 >3 词，放宽到 >=4 字符
-- 修复：从零注入时 `extraDict` 未合并到 `dictionary` 导致全英文
-- 修复：分词正则 `/s+/` 缺少反斜杠导致词数计算错误
-- 词典：1566 → 1583 条
-
-### v1.0.0（2026-09-05）
-- 首次发布：零依赖纯 Python 安装器
-- 纯 Python asar 解包/打包（与官方 @electron/asar 交叉验证一致）
-- 1566 条中英词典 + DOM 翻译引擎
-- 原生菜单 / 托盘菜单翻译
-- 一键安装 / 还原 / 状态检测
-
-## 🔧 常见问题
-
-**Q: 汉化后界面没变化**
-A: 确认已完全退出并重新启动 Antigravity（不是最小化）。
-
-**Q: 提示“应用已损坏，无法打开”？**
-A: 执行 `sudo xattr -rd com.apple.quarantine /Applications/Antigravity.app`。
-
-**Q: 官方更新后汉化失效？**
-A: 正常现象，重新运行 `python3 install.py` 即可。
-
-**Q: 部分界面仍是英文？**
-A: 新版本可能引入词典未覆盖的词条。欢迎在 `dicts/zh_cn.json` 中补充并提交 PR，
-   或到 Issues 反馈缺失词条。
-
-**Q: 如何完全恢复原版？**
-A: `python3 install.py --restore`，脚本会用备份恢复。
-
-## 🤝 贡献
-
-- 补充翻译词条：编辑 `dicts/zh_cn.json`（`"英文原文": "中文翻译"`）
-- 报告问题 / 建议：GitHub Issues
-
-## ⚖️ 免责声明
-
-本项目与 Google 及 Antigravity 官方团队无关，不包含 Antigravity 任何二进制内容。
-修改 `app.asar` 可能违反官方服务条款，请自行评估使用风险。
-
-## 📄 License
-
-[MIT](LICENSE)
+- 本项目采用 [MIT License](LICENSE) 开源。
+- 本项目基于 [zhonghugo/antigravity-zh](https://github.com/zhonghugo/antigravity-zh) 进行了深度性能架构重构、DOM 语法安全隔离与 2.29+ 版本全面加固，感谢原作者的开源贡献。

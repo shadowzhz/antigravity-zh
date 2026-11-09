@@ -84,10 +84,14 @@ def detect_paths(asar_path=None):
             os.path.join(base, "Programs", "Antigravity", "resources", "app.asar"),
         ]
     elif system.startswith("linux"):
+        import glob
         candidates = [
+            os.path.expanduser("~/.local/opt/antigravity/resources/app.asar"),
             "/opt/Antigravity/resources/app.asar",
             os.path.expanduser("~/.local/share/Antigravity/resources/app.asar"),
+            os.path.expanduser("~/Downloads/Antigravity-x64/resources/app.asar"),
         ]
+        candidates.extend(glob.glob(os.path.expanduser("~/Downloads/Antigravity*/resources/app.asar")))
     for c in candidates:
         if os.path.exists(c):
             return c, os.path.dirname(c)

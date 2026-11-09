@@ -377,7 +377,7 @@
     "changed": "已更改", "review": "审查", "reviewing": "审查中", "reviewed": "已审查",
     "edited": "编辑了", "canceled": "已取消",
     "explore": "探索", "change": "更改", "changes": "更改",
-    "turn": "回合", "turns": "回合"
+    "turn": "轮次", "turns": "轮次"
   };
 
 
@@ -401,11 +401,17 @@
 
   // ===== 外部词典热加载（借鉴 Zero-Touch 架构）=====
   // 从 ~/.antigravity-zh/zh-CN.json 读外部词典，覆盖嵌入词典；文件变化时自动重载
-  let combinedDict, sortedKeysAll, longKeysSorted;
+  let combinedDict, dictionaryLowerIndex, longTextRegex, shortTextRegex;
   function rebuildDict() {
     combinedDict = Object.assign({}, coreWords, dictionary);
-    sortedKeysAll = Object.keys(combinedDict).sort((a, b) => b.length - a.length);
-    longKeysSorted = sortedKeysAll.filter(function (k) { return k.length >= 4; });
+    const sortedKeys = Object.keys(combinedDict).sort((a, b) => b.length - a.length);
+    longTextRegex = compileDictionaryRegex(sortedKeys.filter((key) => key.length >= 4));
+    shortTextRegex = compileDictionaryRegex(sortedKeys.filter((key) => key.length > 3 || /^[a-zA-Z0-9]+$/.test(key)));
+    dictionaryLowerIndex = Object.create(null);
+    for (const key in dictionary) {
+      const lowerKey = key.toLowerCase();
+      if (!(lowerKey in dictionaryLowerIndex)) dictionaryLowerIndex[lowerKey] = key;
+    }
     rebuildLowerIndex();
   }
   rebuildDict();
@@ -451,10 +457,20 @@
     }
   } catch (e) {}
 
-  const escapeRegExp = (str) => {
-    const specials = ['[', ']', '(', ')', '{', '}', '*', '+', '?', '.', '^', '$', '|', '\\'];
-    return str.split('').map(c => specials.includes(c) ? '\\' + c : c).join('');
-  };
+  function escapeRegExp(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  // Compile dictionary alternatives once per dictionary update, not for every text node.
+  function compileDictionaryRegex(keys) {
+    if (!keys.length) return null;
+    const alternatives = keys.map((key) => {
+      const startBoundary = /^[a-zA-Z0-9]/.test(key) ? '(?<![A-Za-z0-9-])' : '';
+      const endBoundary = /[a-zA-Z0-9]$/.test(key) ? '(?![A-Za-z0-9-])' : '';
+      return startBoundary + escapeRegExp(key) + endBoundary;
+    });
+    return new RegExp(alternatives.join('|'), 'gi');
+  }
 
   // 时长格式化：1d2h3m4.5s / 1d 2h 3m -> 1 天 2 小时 3 分 4.5 秒
   const fmtDuration = function (d) {
@@ -700,15 +716,28 @@
     }
     // --- End Dynamic Regex ---
 
+    // 0. 单单词全小写标识符绝对保护（防止误伤用户工程名、目录名、变量名、命令与文件名）
+    // 正规英文界面中，UI 标题与按钮均首字母大写（如 Project, Workspace, Task, Run）。
+    // 纯小写单个单词（如 project, workspace, run, task, file, branch, app）绝大多数来源于用户实体。
+    const isSingleLowerToken = /^[a-z0-9_-]+$/.test(trimmed);
+    const allowLowerTokens = new Set(['today', 'yesterday', 'now', 'am', 'pm', 'week', 'month', 'verbose']);
+    if (isSingleLowerToken && !allowLowerTokens.has(trimmed)) {
+      return text;
+    }
+
     // 1. Direct Literal Match (Exact match including punctuation)
     if (dictionary[trimmed]) {
       return text.replace(trimmed, dictionary[trimmed]);
     }
     
     const trimmedLower = trimmed.toLowerCase();
-    for (const key in dictionary) {
-      if (key.toLowerCase() === trimmedLower) {
-        return text.replace(trimmed, dictionary[key]);
+    const lowerKey = dictionaryLowerIndex[trimmedLower];
+    if (lowerKey !== undefined) {
+      // 词汇防御：如果原文是纯单单词小写标识符（如 project, workspace, app），
+      // 但词典里对应的是首字母大写（如 Project, Workspace），则绝不降级误伤用户变量/文件夹名
+      const isSingleLowerToken = /^[a-z0-9_-]+$/.test(trimmed);
+      if (!(isSingleLowerToken && lowerKey !== trimmed)) {
+        return text.replace(trimmed, dictionary[lowerKey]);
       }
     }
 
@@ -742,10 +771,11 @@
       coreTranslated = dictionary[core];
     } else {
       const coreLower = core.toLowerCase();
-      for (const key in dictionary) {
-        if (key.toLowerCase() === coreLower) {
-          coreTranslated = dictionary[key];
-          break;
+      const lowerKey = dictionaryLowerIndex[coreLower];
+      if (lowerKey !== undefined) {
+        const isSingleLowerToken = /^[a-z0-9_-]+$/.test(core);
+        if (!(isSingleLowerToken && lowerKey !== core)) {
+          coreTranslated = dictionary[lowerKey];
         }
       }
     }
@@ -778,24 +808,24 @@
       let longTemp = core;
       let longReplaced = false;
       let longMatchedChars = 0;
-      const longKeys = longKeysSorted; // 预排序缓存（已过滤 >=4 字符）
-      for (var ki = 0; ki < longKeys.length; ki++) {
-        var lkey = longKeys[ki];
-        var lescaped = escapeRegExp(lkey);
-        var lstartBoundary = /^[a-zA-Z0-9]/.test(lkey) ? '(?<![A-Za-z0-9-])' : '';
-        var lendBoundary = /[a-zA-Z0-9]$/.test(lkey) ? '(?![A-Za-z0-9-])' : '';
-        var lregex = new RegExp(lstartBoundary + lescaped + lendBoundary, 'gi');
-        longTemp = longTemp.replace(lregex, function (m) {
+      if (longTextRegex) {
+        longTemp = core.replace(longTextRegex, function (m) {
           longMatchedChars += (m.match(/[A-Za-z]/g) || []).length;
           longReplaced = true;
-          return combinedDict[lkey];
+          return combinedDict[lowerIndex[m.toLowerCase()]];
         });
       }
-      // 覆盖率门槛：命中英文字符占比过低，说明这是整段英文文案
-      // （技能/插件描述、智能体回复等），逐词替换只会产生中英夹杂，保持原文
+      // 覆盖率门槛与纯正度防御：
+      // 如果长句中仍残留有未翻译的连续英文字母单词（如 where, in the, are saved, from the），
+      // 说明并非所有内容均有确切对应，严禁生硬拼接产生中英夹杂怪句（如 "文件夹 where 文件已下载 in the 内置浏览器 are saved"），
+      // 保持原文更为整洁。
       var ltotalChars = (core.match(/[A-Za-z]/g) || []).length;
-      if (!longReplaced || (ltotalChars > 0 && longMatchedChars / ltotalChars < 0.65)) {
+      if (!longReplaced || (ltotalChars > 0 && longMatchedChars / ltotalChars < 0.95)) {
         return text; // 保持原文
+      }
+      var remainingAlphaWords = longTemp.match(/[A-Za-z]{2,}/g) || [];
+      if (remainingAlphaWords.length > 0) {
+        return text; // 保持原文，杜绝夹杂生硬英文字词
       }
       var lfinal = longTemp;
       lfinal = lfinal.replace(/([一-龥])\s+([一-龥])/g, '$1$2');
@@ -811,6 +841,10 @@
     if (hasChinese) {
       return text;
     }
+    // 短文本单单词小写标识符保护：如果核心词是单个全小写单词且词典中没有显式小写条目，直接保持原文，防止被短文本正则泛化误翻
+    if (/^[a-z0-9_-]+$/.test(core)) {
+      return text;
+    }
     // 全词校验门槛：短文本中每个 >=2 字母的单词都必须命中词典，
     // 否则保持原文（如 "Failed to run" 中 to 未命中 -> 整句保留英文，
     // 杜绝 "已失败 to 运行" 这类中英夹杂）。比覆盖率门槛更可预测。
@@ -824,17 +858,10 @@
     }
     let temp = core;
     let replaced = false;
-    const sortedKeys = sortedKeysAll; // 预排序缓存
-    for (const key of sortedKeys) {
-      if (key.length <= 3 && !/^[a-zA-Z0-9]+$/.test(key)) continue;
-      const escapedKey = escapeRegExp(key);
-      // 连字符视为单词一部分（见上方长文本分支说明），防止复合词被拆词误翻
-      const startBoundary = /^[a-zA-Z0-9]/.test(key) ? '(?<![A-Za-z0-9-])' : '';
-      const endBoundary = /[a-zA-Z0-9]$/.test(key) ? '(?![A-Za-z0-9-])' : '';
-      const regex = new RegExp(startBoundary + escapedKey + endBoundary, 'gi');
-      temp = temp.replace(regex, function (m) {
+    if (shortTextRegex) {
+      temp = core.replace(shortTextRegex, function (m) {
         replaced = true;
-        return combinedDict[key];
+        return combinedDict[lowerIndex[m.toLowerCase()]];
       });
     }
 
@@ -850,7 +877,7 @@
   // 用于模糊匹配类名中包含代码/预览/diff相关关键词的正则
   const codeClassPattern = /(?:^|[\s_-])(hljs|shiki|prism|monaco|codemirror|line-number|line-content|gutter|codeblock|code-block|code-view|code-preview|file-preview|file-content|syntax-highlighting)(?:$|[\s_-])/i;
 
-  function shouldSkipNode(node) {
+  function shouldSkipNode(node, checkAncestors = true) {
     if (!node) return true;
     
     // 如果是文本节点，我们检查其父元素；如果是属性/元素节点，检查自身
@@ -880,9 +907,19 @@
       }
     }
 
-    // 4. 向上递归检查祖先节点
+    // 4. 入口节点向上检查祖先；子节点复用已检查过的父链
     let cur = element;
     while (cur) {
+      // 4a0. 祖先标签若为代码或脚本标签（PRE, CODE, KBD, SAMP 等），绝对跳过！
+      if (cur.tagName && skipTags.includes(cur.tagName)) {
+        return true;
+      }
+
+      // 4a0b. 语法高亮代码 token 元素（如 Prism/Shiki/hljs token），绝对跳过
+      if (cur.classList && (cur.classList.contains('token') || codeClassPattern.test(cur.className || ''))) {
+        return true;
+      }
+
       // 4a. contenteditable 区域
       if (cur.getAttribute && cur.getAttribute('contenteditable') === 'true') {
         return true;
@@ -898,8 +935,20 @@
         }
       }
 
-      // 4b2. 思考链/模型回复正文：模型生成的自由文本不逐词翻译（无法整句翻译时保持英文，
-      //      避免中英夹杂的破碎译文）。「已思考 X 秒」触发药丸是系统 UI，放行汉化。
+      // 4b2. 思考链/模型回复正文/工具调用摘要保护：
+      //      - 模型生成的自由思考链（.cursor-edit）、回复正文、工件视图属于动态自由文本，严禁局部词汇机翻。
+      //      - 工具调用步骤中，仅放行系统动词前缀（如 Ran -> 已运行、Running -> 正在运行），
+      //        而工具调用摘要正文（toolSummary，具有 .truncate 且父级为 .whitespace-nowrap）必须完全保留英文原文。
+      //      - 「已思考 X 秒」触发药丸是系统 UI，放行汉化。
+      if (cur.classList && cur.classList.contains('cursor-edit')) {
+        return true;
+      }
+      if (cur.classList && cur.classList.contains('truncate')) {
+        const p = cur.parentElement;
+        if (p && p.classList && p.classList.contains('whitespace-nowrap')) {
+          return true; // 跳过智能体动态生成的工具调用摘要
+        }
+      }
       if (cur.getAttribute) {
         const testId = cur.getAttribute('data-testid');
         if (testId === 'thinking-collapsible-trigger' ||
@@ -913,7 +962,62 @@
           return true;
         }
       }
-      if (cur.classList && cur.classList.contains('cursor-edit')) {
+
+      // 4b3. 用户实体数据保护：项目名称、工作区名称、代码仓库、符号变量、文件路径、代码Diff、消息内容等用户自定义数据容器
+      if (cur.getAttribute) {
+        if (cur.getAttribute('data-project-name') ||
+            cur.getAttribute('data-project-card') ||
+            cur.getAttribute('data-project-label') ||
+            cur.getAttribute('data-repo-slug') ||
+            cur.getAttribute('data-card-name') ||
+            cur.getAttribute('data-member-name') ||
+            cur.getAttribute('data-symbol-name') ||
+            cur.getAttribute('data-variable-name') ||
+            cur.getAttribute('data-file-uri') ||
+            cur.getAttribute('data-uri') ||
+            cur.getAttribute('data-turn-content') ||
+            cur.getAttribute('data-diff') ||
+            cur.getAttribute('data-current-original-line') ||
+            cur.getAttribute('data-current-modified-line') ||
+            cur.getAttribute('data-arg-key') ||
+            cur.getAttribute('data-arg-type') ||
+            cur.getAttribute('data-slug-base')) {
+          return true;
+        }
+        const testId = cur.getAttribute('data-testid');
+        if (testId) {
+          if (testId === 'project-selector-trigger' ||
+              testId === 'project-selector-item' ||
+              testId === 'project-header' ||
+              testId === 'conversation-navigator-card' ||
+              testId === 'sidecar-project-link') {
+            return true;
+          }
+        }
+      }
+
+      // 4b4. 快捷指令与提及菜单保护：保持英文原版，不执行翻译
+      if (cur.getAttribute) {
+        if (cur.getAttribute('data-mention-menu') !== null ||
+            cur.getAttribute('data-lexical-beautiful-mention') !== null ||
+            cur.getAttribute('data-slash-menu') !== null) {
+          return true;
+        }
+        const testId = cur.getAttribute('data-testid');
+        if (testId && (
+            testId.startsWith('mention-menu') ||
+            testId.startsWith('slash-command') ||
+            testId.startsWith('slash-menu') ||
+            testId === 'command-menu'
+        )) {
+          return true;
+        }
+      }
+      if (cur.classList && (
+          cur.classList.contains('mention-menu') ||
+          cur.classList.contains('slash-menu') ||
+          cur.classList.contains('slash-command')
+      )) {
         return true;
       }
 
@@ -925,10 +1029,12 @@
         }
       }
 
-      // 4d. 精确类名匹配 — 已知的编辑器/输入区域
+      // 4d. 精确类名匹配 — 已知的编辑器/终端/输入区域
       if (cur.classList && (
         cur.classList.contains('monaco-editor') || 
         cur.classList.contains('editor-instance') ||
+        cur.classList.contains('xterm') ||
+        cur.classList.contains('terminal-instance') ||
         cur.classList.contains('input-area') ||
         cur.classList.contains('chat-input')
       )) {
@@ -952,15 +1058,16 @@
         return true;
       }
 
+      if (!checkAncestors) break;
       cur = cur.parentElement;
     }
 
     return false;
   }
 
-  function translateNode(node) {
+  function translateNode(node, checkAncestors = true) {
     if (!node) return;
-    if (shouldSkipNode(node)) return;
+    if (shouldSkipNode(node, checkAncestors)) return;
 
     if (node.nodeType === Node.TEXT_NODE) {
       const original = node.nodeValue;
@@ -985,14 +1092,14 @@
         }
       });
       if (node.shadowRoot) {
-        translateNode(node.shadowRoot);
+        translateNode(node.shadowRoot, false);
       }
       for (let i = 0; i < node.childNodes.length; i++) {
-        translateNode(node.childNodes[i]);
+        translateNode(node.childNodes[i], false);
       }
     } else if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
       for (let i = 0; i < node.childNodes.length; i++) {
-        translateNode(node.childNodes[i]);
+        translateNode(node.childNodes[i], false);
       }
     }
   }
@@ -1013,11 +1120,7 @@
       try {
         for (const mutation of mutations) {
           if (mutation.type === 'childList') {
-            mutation.addedNodes.forEach(node => {
-              if (!shouldSkipNode(node)) {
-                translateNode(node);
-              }
-            });
+            mutation.addedNodes.forEach(node => translateNode(node));
           } else if (mutation.type === 'characterData') {
             const node = mutation.target;
             if (!shouldSkipNode(node)) {
