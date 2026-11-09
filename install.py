@@ -17,6 +17,7 @@ Antigravity 中文汉化安装器（纯 Python 零外部依赖）
 升级后汉化会失效，重新运行本脚本即可。安装前会自动备份 app.asar.bak。
 """
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -31,12 +32,7 @@ sys.path.insert(0, HERE)
 import asar  # noqa: E402
 
 TAG = "Antigravity Chinese Translation Injection v3-full"
-ANCHOR = "  const combinedDict = Object.assign({}, coreWords, dictionary);"
 DICT_PLACEHOLDER = "__DICT_ITEMS__"
-UNPACK_PATTERNS = ["**/node_modules/chrome-devtools-mcp/**"]
-
-# 旧版标记（用于升级时清理）
-OLD_TAGS = ["Antigravity Chinese Translation Injection v2-extra"]
 
 
 def _load_engine_template():
@@ -49,18 +45,18 @@ def _load_engine_template():
 
 
 # 注入引擎 IIFE 的起始两行（build_injection 输出的开头），用于定位旧引擎块
-ENGINE_START_MARKER = "(function() {\n  const dictionary = {"
+ENGINE_START_MARKER = "// AGZH ENGINE START"
+LEGACY_ENGINE_START_MARKER = "(function() {\n  const dictionary = {"
 
 
 def build_injection(dictionary):
     """由全量字典生成注入 JS（引擎模板 + 字典项）。"""
-    items = []
-    for k, v in dictionary.items():
-        items.append("    %s: %s" % (json.dumps(k, ensure_ascii=False),
-                                     json.dumps(v, ensure_ascii=False)))
-    dict_block = "// ===== %s =====\n  const extraDict = {\n%s\n  };\n" % (
-        TAG, ",\n".join(items))
-    return _load_engine_template().replace(DICT_PLACEHOLDER, dict_block)
+    payload = json.dumps(json.dumps(dictionary, ensure_ascii=False), ensure_ascii=True)
+    dict_block = "// ===== %s =====\n  const bundledDictionary = JSON.parse(%s);" % (TAG, payload)
+    template = _load_engine_template()
+    if template.count(DICT_PLACEHOLDER) != 1:
+        raise ValueError("引擎模板必须包含一个词典占位符")
+    return template.replace(DICT_PLACEHOLDER, dict_block)
 
 
 # ---------------------------------------------------------------- 平台与路径
@@ -115,7 +111,10 @@ def check_app_running():
         elif sys.platform == "win32":
             r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq Antigravity.exe"],
                                capture_output=True, text=True)
-            return "Antigravity.exe" in r.stdout
+            return "antigravity.exe" in r.stdout.lower()
+        elif sys.platform.startswith("linux"):
+            r = subprocess.run(["pgrep", "-x", "[Aa]ntigravity"], capture_output=True)
+            return r.returncode == 0
     except Exception:
         pass
     return False
@@ -129,12 +128,13 @@ def codesign_macos(app_path):
         r = subprocess.run(["codesign", "--force", "--deep", "--sign", "-", app_path],
                            capture_output=True, text=True)
         if r.returncode != 0:
-            print("[!] 重签名失败（可忽略，若启动报“已损坏”再处理）: %s" % r.stderr.strip()[:200])
+            print("[!] 重签名失败，请保留错误信息并检查客户端能否启动: %s" % r.stderr.strip()[:200])
             return False
         print("[OK] macOS 重签名完成")
         return True
     except FileNotFoundError:
-        return True
+        print("[!] 未找到 codesign，未完成重签名")
+        return False
 
 
 # ---------------------------------------------------------------- 字典与注入
@@ -152,7 +152,9 @@ def load_dictionary():
             if isinstance(item, dict) and "key" in item and "value" in item:
                 d[item["key"]] = item["value"]
     if not d:
-        sys.exit("[ERR] 字典为空")
+        raise ValueError("字典为空")
+    if any(not isinstance(k, str) or not k.strip() or not isinstance(v, str) for k, v in d.items()):
+        raise ValueError("词典必须由非空字符串键和字符串译文组成")
     return d
 
 
@@ -168,10 +170,12 @@ def patch_file(path, dictionary):
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    if ENGINE_START_MARKER in content:
+    starts = [content.find(marker) for marker in (ENGINE_START_MARKER, LEGACY_ENGINE_START_MARKER)
+              if marker in content]
+    if starts:
         # 情况 B：已注入引擎（含旧格式）。第一个起点到文件尾全部重建。
-        start = content.find(ENGINE_START_MARKER)
-        n_old = content.count(ENGINE_START_MARKER)
+        start = min(starts)
+        n_old = content.count(ENGINE_START_MARKER) + content.count(LEGACY_ENGINE_START_MARKER)
         if n_old > 1:
             print("[*] %s 检测到 %d 个重复引擎块，合并重建" % (os.path.basename(path), n_old))
         new_engine = build_injection(dictionary)
@@ -364,154 +368,191 @@ def sha256(path):
     return h.hexdigest()
 
 
-def cmd_install(asar_path, resources_dir):
+def _require_app_stopped():
     if check_app_running():
-        print("[!] 检测到 Antigravity 正在运行。")
-        print("    为避免文件被占用，请先完全退出 Antigravity 再运行本脚本。")
-        sys.exit(1)
+        raise RuntimeError("检测到 Antigravity 正在运行，请完全退出后重试")
 
-    # 1. 解包（含 .unpacked），同时判断当前是否已汉化
-    tmp = tempfile.mkdtemp(prefix="agy_zh_")
-    print("[*] 解包 app.asar ...")
+
+@contextmanager
+def _archive_lock(asar_path):
+    lock = asar_path + ".agzh.lock"
     try:
-        asar.extract(asar_path, tmp)
-    except Exception as e:
-        shutil.rmtree(tmp, ignore_errors=True)
-        sys.exit("[ERR] 解包失败: %s" % e)
-
-    preload = os.path.join(tmp, "dist", "preload.js")
-    already = False
-    if os.path.exists(preload):
-        with open(preload, "r", encoding="utf-8") as f:
-            already = TAG in f.read()
-    if already:
-        print("[*] 当前已是汉化版，跳过备份（保留官方原版 .bak）")
-
-    # 2. 备份：仅当当前 asar 未被汉化（是官方版）时，才可能覆盖 .bak
-    bak = asar_path + ".bak"
-    if not already:
-        if not os.path.exists(bak):
-            shutil.copy2(asar_path, bak)
-            print("[OK] 首次备份官方原版 -> %s" % bak)
-        elif os.path.getmtime(asar_path) > os.path.getmtime(bak):
-            shutil.copy2(asar_path, bak)
-            print("[OK] 检测到官方版本已更新，重新备份 -> %s" % bak)
-        else:
-            print("[*] 已有官方备份，直接使用")
-
-    # 3. 注入
-    dictionary = load_dictionary()
-    print("[*] 字典词条: %d" % len(dictionary))
-    patch_file(preload, dictionary)
-    wizard = os.path.join(tmp, "dist", "ideInstall", "wizardPreload.js")
-    if os.path.exists(wizard):
-        patch_file(wizard, dictionary)
-    patch_native_menu(tmp)
-    patch_tray(tmp)
-    patch_quit_dialog(tmp)
-    patch_loading_overlay(tmp)
-
-    # 4. 重打包
-    new_asar = os.path.join(tmp, "app.asar.new")
-    print("[*] 重新打包（unpack: chrome-devtools-mcp）...")
-    asar.pack(tmp, new_asar, UNPACK_PATTERNS)
-    if not os.path.exists(new_asar) or os.path.getsize(new_asar) == 0:
-        shutil.rmtree(tmp, ignore_errors=True)
-        sys.exit("[ERR] 打包结果为空")
-
-    # 5. 原子替换 asar 与 unpacked
-    #    先把新 asar 复制到同目录暂存文件（保证同一文件系统），再用 os.replace
-    #    原子替换，避免复制中途断电/磁盘满导致 app.asar 损坏；unpacked 同步切换，
-    #    替换失败时自动回滚。
-    staged_asar = asar_path + ".agzh_new"
-    old_unpacked = asar_path + ".unpacked"
-    old_unpacked_bak = asar_path + ".unpacked.agzh_old"
-    if os.path.isdir(old_unpacked_bak):
-        shutil.rmtree(old_unpacked_bak)
-    shutil.copy2(new_asar, staged_asar)
-    if os.path.isdir(old_unpacked):
-        os.rename(old_unpacked, old_unpacked_bak)
-    if os.path.isdir(new_asar + ".unpacked"):
-        shutil.move(new_asar + ".unpacked", old_unpacked)
+        handle = open(lock, "x", encoding="utf-8")
+    except FileExistsError:
+        raise RuntimeError("存在安装锁 %s；确认没有安装器运行后再移除残留锁" % lock)
     try:
-        os.replace(staged_asar, asar_path)
-    except Exception:
-        if os.path.isdir(old_unpacked):
-            shutil.rmtree(old_unpacked, ignore_errors=True)
-        if os.path.isdir(old_unpacked_bak):
-            os.rename(old_unpacked_bak, old_unpacked)
-        raise
+        with handle:
+            handle.write(str(os.getpid()))
+        yield
     finally:
-        if os.path.exists(staged_asar):
-            os.remove(staged_asar)
-    if os.path.isdir(old_unpacked_bak):
-        shutil.rmtree(old_unpacked_bak, ignore_errors=True)
-    print("[OK] 已替换 app.asar（新大小: %d bytes）" % os.path.getsize(asar_path))
-    print("[OK] SHA256: %s" % sha256(asar_path))
+        os.remove(lock)
 
-    shutil.rmtree(tmp, ignore_errors=True)
 
-    # 6. 签名（resources_dir -> Contents -> Antigravity.app）
-    if sys.platform == "darwin":
-        app_root = os.path.dirname(os.path.dirname(resources_dir))
-        codesign_macos(app_root)
+def _replace_archive(source, destination, source_unpacked=None):
+    """Stage the complete pair on the target filesystem; roll back all switches.
 
-    print("[DONE] 汉化注入完成，请启动 Antigravity 查看效果。")
+    No live paths are moved until copying and validation have succeeded. If the
+    OS also refuses rollback, retain the recovery directory instead of deleting
+    the only remaining copy. This is exception-safe, not power-loss atomic.
+    """
+    source_unpacked = source_unpacked or source + ".unpacked"
+    entries = asar.validate_archive(source, source_unpacked)
+    parent = os.path.dirname(os.path.abspath(destination))
+    stage = tempfile.mkdtemp(prefix=".agzh_stage_", dir=parent)
+    staged_asar = os.path.join(stage, "app.asar")
+    staged_unpacked = staged_asar + ".unpacked"
+    live_unpacked = destination + ".unpacked"
+    old_unpacked = os.path.join(stage, "previous.unpacked")
+    old_archive = os.path.join(stage, "previous.asar")
+    saved_old = False
+    installed_new = False
+    keep_stage = False
+    try:
+        shutil.copy2(source, staged_asar)
+        if os.path.isdir(source_unpacked):
+            shutil.copytree(source_unpacked, staged_unpacked, symlinks=True)
+            for rel, entry in entries.items():
+                if entry["unpacked"] and entry.get("executable"):
+                    target = asar._safe_path(staged_unpacked, rel)
+                    os.chmod(target, os.stat(target).st_mode | 0o111)
+        asar.validate_archive(staged_asar)
+        had_archive = os.path.exists(destination)
+        if had_archive:
+            shutil.copy2(destination, old_archive)
+        try:
+            if os.path.lexists(live_unpacked):
+                if os.path.islink(live_unpacked) or not os.path.isdir(live_unpacked):
+                    raise ValueError("unpacked 目标必须是普通目录: %s" % live_unpacked)
+                os.replace(live_unpacked, old_unpacked)
+                saved_old = True
+            if os.path.isdir(staged_unpacked):
+                os.replace(staged_unpacked, live_unpacked)
+                installed_new = True
+            os.replace(staged_asar, destination)
+        except BaseException:
+            try:
+                if installed_new:
+                    shutil.rmtree(live_unpacked)
+                if saved_old:
+                    os.replace(old_unpacked, live_unpacked)
+                if had_archive and not os.path.exists(staged_asar):
+                    # Also cover an interruption immediately after the final
+                    # rename, when the new archive may already be visible.
+                    os.replace(old_archive, destination)
+                elif not had_archive and not os.path.exists(staged_asar) and os.path.exists(destination):
+                    os.remove(destination)
+            except BaseException as rollback_error:
+                keep_stage = True
+                raise RuntimeError("自动回滚失败，恢复文件保留在 %s" % stage) from rollback_error
+            raise
+    finally:
+        if not keep_stage:
+            shutil.rmtree(stage, ignore_errors=True)
 
-    # 7. 复制词典到外部目录（支持热重载：改 ~/.antigravity-zh/zh-CN.json 即时生效）
+
+def _is_patched(content):
+    return ("Antigravity Chinese Translation Injection" in content or
+            ENGINE_START_MARKER in content or LEGACY_ENGINE_START_MARKER in content)
+
+
+def _prepare_existing_backup(asar_path):
+    bak = asar_path + ".bak"
+    if not os.path.isfile(bak):
+        raise FileNotFoundError("缺少原版备份 %s；请先恢复官方客户端" % bak)
+    entries = asar.manifest(bak)
+    migrate = any(entry["unpacked"] for entry in entries.values()) and not os.path.exists(bak + ".unpacked")
+    source_unpacked = asar_path + ".unpacked" if migrate else bak + ".unpacked"
+    asar.validate_archive(bak, source_unpacked, require_integrity=migrate)
+    if _is_patched(asar.read_file(bak, "dist/preload.js", source_unpacked).decode("utf-8")):
+        raise ValueError("备份中含有汉化引擎，不能作为官方原版还原")
+    if migrate:
+        # Migrate old single-file backups only when hashes prove that every
+        # required sidecar still belongs to the original archive.
+        _replace_archive(bak, bak, source_unpacked)
+        print("[OK] 已校验并补齐旧版备份的 unpacked 文件")
+    asar.validate_archive(bak)
+    return bak
+
+
+def _ensure_external_dictionary():
     ext_dir = os.path.join(os.path.expanduser("~"), ".antigravity-zh")
     os.makedirs(ext_dir, exist_ok=True)
     ext_dict = os.path.join(ext_dir, "zh-CN.json")
-    src_dict = os.path.join(HERE, "dicts", "zh_cn.json")
-    if os.path.exists(src_dict):
-        shutil.copy2(src_dict, ext_dict)
-        print("[OK] 外部词典已复制到 %s（可编辑此文件即时热重载）" % ext_dict)
+    try:
+        with open(ext_dict, "x", encoding="utf-8") as target:
+            target.write("{}\n")
+        print("[OK] 已创建用户覆盖词典: %s" % ext_dict)
+    except FileExistsError:
+        print("[*] 保留已有用户词典: %s" % ext_dict)
+
+
+def cmd_install(asar_path, resources_dir):
+    with _archive_lock(asar_path):
+        _require_app_stopped()
+        dictionary = load_dictionary()
+        metadata = asar.validate_archive(asar_path)
+        current_preload = asar.read_file(asar_path, "dist/preload.js").decode("utf-8")
+        with tempfile.TemporaryDirectory(prefix="agy_zh_") as tmp:
+            extracted = os.path.join(tmp, "source")
+            print("[*] 解包 app.asar ...")
+            asar.extract(asar_path, extracted)
+            if _is_patched(current_preload):
+                _prepare_existing_backup(asar_path)
+                print("[*] 保留已校验的官方原版备份")
+            else:
+                # Back up the current pristine pair regardless of mtime; a
+                # vendor update can preserve or backdate timestamps.
+                _replace_archive(asar_path, asar_path + ".bak")
+                print("[OK] 已成套备份当前原版 ASAR 与 unpacked 文件")
+            print("[*] 字典词条: %d" % len(dictionary))
+            patch_file(os.path.join(extracted, "dist", "preload.js"), dictionary)
+            wizard = os.path.join(extracted, "dist", "ideInstall", "wizardPreload.js")
+            if os.path.exists(wizard):
+                patch_file(wizard, dictionary)
+            patch_native_menu(extracted)
+            patch_tray(extracted)
+            patch_quit_dialog(extracted)
+            patch_loading_overlay(extracted)
+            new_asar = os.path.join(tmp, "app.asar")
+            print("[*] 重新打包（保留原始 unpacked 清单和执行标记）...")
+            asar.pack(extracted, new_asar, metadata=metadata)
+            asar.validate_archive(new_asar)
+            _ensure_external_dictionary()
+            _require_app_stopped()
+            _replace_archive(new_asar, asar_path)
+        if sys.platform == "darwin":
+            codesign_macos(os.path.dirname(os.path.dirname(resources_dir)))
+        print("[DONE] 汉化注入完成（SHA256: %s），请启动 Antigravity。" % sha256(asar_path))
 
 
 def cmd_restore(asar_path, resources_dir):
-    bak = asar_path + ".bak"
-    if not os.path.exists(bak):
-        sys.exit("[ERR] 没有找到备份 %s，无法还原" % bak)
-    shutil.copy2(bak, asar_path)
-    # 注意：.unpacked（chrome-devtools-mcp 等）是官方原版内容且不被汉化修改，
-    # 安装/还原时均保持一致，无需删除。
-    if sys.platform == "darwin":
-        # resources_dir -> Contents -> Antigravity.app
-        app_root = os.path.dirname(os.path.dirname(resources_dir))
-        codesign_macos(app_root)
-    print("[OK] 已还原官方原版 app.asar（SHA256: %s）" % sha256(asar_path))
-    print("[OK] 汉化已移除，请重启 Antigravity。")
+    with _archive_lock(asar_path):
+        _require_app_stopped()
+        bak = _prepare_existing_backup(asar_path)
+        _require_app_stopped()
+        _replace_archive(bak, asar_path)
+        if sys.platform == "darwin":
+            codesign_macos(os.path.dirname(os.path.dirname(resources_dir)))
+        print("[OK] 已成套还原原版 ASAR 与 unpacked 文件（SHA256: %s）" % sha256(asar_path))
+        print("[OK] 用户词典已保留，请重新启动 Antigravity。")
 
 
 def cmd_status(asar_path, resources_dir):
     print("asar 路径: %s" % asar_path)
-    if not os.path.exists(asar_path):
-        print("状态: 不存在")
-        return
     print("SHA256: %s" % sha256(asar_path))
     print("大小: %d bytes" % os.path.getsize(asar_path))
     bak = asar_path + ".bak"
-    if os.path.exists(bak):
-        print("备份: 存在（%s）" % sha256(bak)[:16])
-    else:
-        print("备份: 无")
-    try:
-        tmp = tempfile.mkdtemp(prefix="agy_zh_st_")
-        asar.extract(asar_path, tmp)
-        preload = os.path.join(tmp, "dist", "preload.js")
-        if os.path.exists(preload):
-            with open(preload, "r", encoding="utf-8") as f:
-                c = f.read()
-            print("汉化: %s" % ("已注入 v3" if TAG in c else "未注入（原版）"))
-        shutil.rmtree(tmp, ignore_errors=True)
-    except Exception as e:
-        print("检查失败: %s" % e)
+    print("备份: %s" % ("存在" if os.path.exists(bak) else "无"))
+    print("unpacked 备份: %s" % ("存在" if os.path.isdir(bak + ".unpacked") else "无（若原包有外置文件需校验）"))
+    content = asar.read_file(asar_path, "dist/preload.js").decode("utf-8")
+    print("汉化: %s" % ("已注入" if _is_patched(content) else "未注入（原版）"))
 
 
 def main():
     ap = argparse.ArgumentParser(description="Antigravity 中文汉化安装器（零依赖）")
-    ap.add_argument("--restore", action="store_true", help="还原官方原版")
-    ap.add_argument("--status", action="store_true", help="查看汉化状态")
+    actions = ap.add_mutually_exclusive_group()
+    actions.add_argument("--restore", action="store_true", help="还原官方原版")
+    actions.add_argument("--status", action="store_true", help="查看汉化状态")
     ap.add_argument("--asar", default=None, help="手动指定 app.asar 路径")
     args = ap.parse_args()
 
@@ -527,4 +568,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (OSError, ValueError, RuntimeError) as error:
+        sys.exit("[ERR] %s" % error)

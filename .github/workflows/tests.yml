@@ -1,0 +1,38 @@
+name: Tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    env:
+      PYTHONUTF8: '1'
+      PYTHON: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Python regression tests
+        run: python -m unittest discover -s tests -v
+      - name: Translation regression tests
+        run: node --test tests/engine.test.cjs
+      - name: Syntax and whitespace
+        run: |
+          python -m py_compile install.py asar.py
+          git diff --check
