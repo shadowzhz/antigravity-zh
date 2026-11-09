@@ -1,461 +1,77 @@
+// AGZH ENGINE START
 (function() {
-  const dictionary = {
-    "Allow": "允许",
-    "Deny": "拒绝",
-    "Reason": "申请原因",
-    "Run Command": "运行命令",
-    "Run command": "运行命令",
-    "Terminal Command": "终端命令",
-    "CommandLine": "命令行",
-    "Command Line": "命令行",
-    "Execute": "执行",
-    "Approved": "已批准",
-    "Pending approval": "等待批准",
-    "Task ID": "任务 ID",
-    "Working Directory": "工作目录",
-    "Cancel": "取消",
-    "Close": "关闭",
-    "Confirm": "确认",
-    "Submit": "提交",
-    "Skip": "跳过",
-    "Requesting permission": "正在请求权限",
-    "Insufficient permissions": "权限不足",
-    "Permission requested": "已请求权限",
-    "Target": "目标",
-    "Action": "操作",
-    "Grant Permission": "授予权限",
-    "Deny Permission": "拒绝权限",
-    "Always Allow": "总是允许",
-    "Always Deny": "总是拒绝",
-    "Always allow for this session": "在此会话中始终允许",
-    "Always deny for this session": "在此会话中始终拒绝",
-    "Run in background": "后台运行",
-    "Keep running in background": "保持后台运行",
-    "Execution output": "执行输出",
-    "Error executing command": "执行命令时出错",
-    "Command completed successfully": "命令执行成功",
-    "The command failed with exit code": "命令执行失败，退出代码为",
-    "WaitMsBeforeAsync": "异步等待时间（毫秒）",
-    "This command is running asynchronously in the background.": "该命令正在后台异步运行。",
-    "View logs": "查看日志",
-    "Clear logs": "清除日志",
-    "Kill task": "终止任务",
-    "Command history": "命令历史记录",
-    "Operating System": "操作系统",
-    "Shell": "终端 Shell",
-    "The actual command will NOT execute until you approve it": "在您批准之前，该命令不会实际执行",
-    "This tool is proposing to run a command on your behalf": "此工具申请代表您运行以下命令",
-    "Ask Permission": "请求授权",
-    "File": "文件",
-    "Edit": "编辑",
-    "View": "视图",
-    "Selection": "选择",
-    "Find": "查找",
-    "Help": "帮助",
-    "Docs": "文档",
-    "Docs & API Reference": "文档与 API 参考",
-    "Toggle Developer Tools": "开发者工具",
-    "New Window": "新窗口",
-    "Quit": "退出",
-    "Confirm Quit": "确认退出",
-    "Are you sure you want to quit?": "您确定要退出吗？",
-    "There may be agents or background tasks running.": "可能还有智能体或后台任务正在运行。",
-    "Welcome to the new Antigravity!": "欢迎使用全新 Antigravity！",
-    "Antigravity has been redesigned to put agents first with new capabilities. If you'd still like a code editor, you can download it as a separate app named": "Antigravity 已经重构为以智能体为核心的全新平台。如果您仍需要代码编辑器，可以将其作为名为以下的独立应用下载：",
-    "Antigravity IDE": "Antigravity IDE 编辑器",
-    "Download the Antigravity IDE": "下载 Antigravity IDE",
-    "Explore the new Antigravity": "探索全新 Antigravity",
-    "Setting up…": "正在设置...",
-    "Agent": "智能体",
-    "Agents": "智能体",
-    "Subagent": "子智能体",
-    "Subagents": "子智能体",
-    "Task": "任务",
-    "Tasks": "任务",
-    "Workspace": "工作区",
-    "Workspaces": "工作区",
-    "Command": "命令",
-    "Run": "运行",
-    "Settings": "设置",
-    "Model": "模型",
-    "Stop": "停止",
-    "Approve": "批准",
-    "Reject": "拒绝",
-    "Terminal": "终端",
-    "Output": "输出",
-    "Codebase": "代码库",
-    "Error": "错误",
-    "Success": "成功",
-    "Pending": "等待中",
-    "Running": "运行中",
-    "Completed": "已完成",
-    "Failed": "已失败",
-    "Branch": "分支",
-    "Merge": "合并",
-    "Conflict": "冲突",
-    "Generate Image": "生成图像",
-    "Web Search": "网页搜索",
-    "Grep Search": "全局搜索",
-    "Active Agents": "活跃智能体",
-    "No agents running": "没有运行中的智能体",
-    "active workspace": "活动工作区",
-    "Active Workspace": "活动工作区",
-    "Search": "搜索",
-    "Search...": "搜索...",
-    "Type a command...": "输入命令...",
-    "Settings & Preferences": "设置与偏好",
-    "General": "通用",
-    "Themes": "主题",
-    "Language": "语言",
-    "Model Selection": "模型选择",
-    "Advanced": "高级",
-    "Developer": "开发者",
-    "Save": "保存",
-    "Status": "状态",
-    "Progress": "进度",
-    "Logs": "日志",
-    "Console": "控制台",
-    "Running task...": "任务运行中...",
-    "Task completed successfully": "任务成功完成",
-    "An error occurred": "发生错误",
-    "Connecting to Language Server...": "正在连接语言服务器...",
-    "Language Server": "语言服务器",
-    "Connected": "已连接",
-    "Disconnected": "已断开",
-    "Select a folder": "选择文件夹",
-    "Open Folder": "打开文件夹",
-    "Create New Project": "创建新项目",
-    "Antigravity": "Antigravity",
-    "Antigravity 2.0": "Antigravity 2.0",
-    "Google DeepMind": "Google DeepMind",
-    "Advanced Agentic Coding": "高级智能体编码",
-    "Welcome to Antigravity": "欢迎使用 Antigravity",
-    "Get Started": "开始使用",
-    "Create an agent to get started": "创建一个智能体以开始",
-    "New Agent": "新建智能体",
-    "Agent Name": "智能体名称",
-    "System Prompt": "系统提示词",
-    "Description": "描述",
-    "Capabilities": "能力",
-    "Write Files": "写入文件",
-    "Run Commands": "运行命令",
-    "Web Browsing": "网页浏览",
-    "Define Subagents": "定义子智能体",
-    "Call MCP Tools": "调用 MCP 工具",
-    "Inherit Workspace": "继承工作区",
-    "Branch Workspace": "分支隔离工作区",
-    "Share Workspace": "共享工作区",
-    "timer": "定时器",
-    "Timers": "定时器",
-    "Cron Jobs": "计划任务",
-    "Schedule": "调度",
-    "Directory analysis": "目录分析",
-    "Web search": "网页搜索",
-    "File edit": "文件编辑",
-    "Command execution": "命令执行",
-    "Semantic search": "语义搜索",
-    "Permissions": "权限",
-    "Configure global allowed and denied resource permissions. Learn more.": "配置全局允许与拒绝的资源访问权限。了解更多。",
-    "Configure global allowed and denied resource permissions.": "配置全局允许与拒绝的资源访问权限。",
-    "Learn more.": "了解更多。",
-    "Learn more": "了解更多",
-    "Project-Specific Settings": "项目专属设置",
-    "Project-Specific": "项目专属",
-    "Modify scoped permissions, folders, and Agent settings like Sandbox and Terminal command execution.": "修改项目专属访问权限、工作文件夹以及智能体设置（例如沙箱和终端命令执行）。",
-    "Modify scoped permissions, folders, and Agent settings": "修改项目专属访问权限、工作文件夹以及智能体设置",
-    "like Sandbox and Terminal command execution.": "例如沙箱与终端命令执行。",
-    "Go to Projects": "转到项目",
-    "File Permissions": "文件权限",
-    "File Access Rules": "文件访问规则",
-    "Configure allowed and denied paths for file reads and writes.": "配置文件读写的允许与拒绝路径。",
-    "Network Permissions": "网络权限",
-    "Network Access Rules": "网络访问规则",
-    "Configure allowed and denied URLs for reading.": "配置允许或禁止读取的 URL。",
-    "Terminal & Tooling Permissions": "终端和工具权限",
-    "Terminal Commands": "终端命令",
-    "Configure allowed terminal commands.": "配置允许执行的终端命令。",
-    "Commands Outside Sandbox": "沙箱外命令",
-    "Configure allowed commands outside the sandbox.": "配置允许在沙箱外执行的终端命令。",
-    "MCP Tools": "MCP 工具",
-    "Configure external tools via Model Context Protocol.": "通过模型上下文协议 (MCP) 配置外部工具。",
-    "Global": "全局",
-    "Sandbox": "沙箱",
-    "Sandbox enabled": "沙箱已启用",
-    "Sandbox disabled": "沙箱已禁用",
-    "Allowed": "已允许",
-    "Denied": "已拒绝",
-    "Paths": "路径",
-    "URLs": "URL",
-    "Tools": "工具",
-    "Appearance": "外观",
-    "Configure the Agent's visual theme and display preferences.": "配置智能体的视觉主题与显示偏好。",
-    "Chat Settings": "对话设置",
-    "Verbose Agent Chat": "显示智能体详细输出",
-    "Display and preserve intermediate thinking steps": "显示并保留智能体中间思考过程",
-    "Choose light, dark, or inherit system settings.": "选择浅色、深色，或继承系统设置。",
-    "Dark": "深色",
-    "Light": "浅色",
-    "Light Theme": "浅色主题",
-    "Preset": "预设",
-    "Default Light": "默认浅色",
-    "Background": "背景色",
-    "Foreground": "前景色",
-    "Accent": "强调色",
-    "Dark Theme": "深色主题",
-    "Default Dark": "默认深色",
-    "Customizations": "自定义",
-    "Configure default behaviors, skills, and MCP servers.": "配置默认行为、技能以及 MCP 服务器。",
-    "Token Usage": "Token 用量",
-    "The breakdown below shows token usage from customizations like skills, rules, and MCP. If the budget is exceeded, large customizations will be truncated automatically.": "以下详情展示了来自技能、规则和 MCP 等自定义扩展的 Token 使用情况。如果额度超限，大型自定义内容将被自动截断。",
-    "of the customization budget is available.": "的自定义额度可用。",
-    "100.0% of the customization budget is available.": "100.0% 的自定义额度可用。",
-    "No customizations found for this workspace.": "未找到此工作区的自定义扩展。",
-    "Installed MCP Servers": "已安装的 MCP 服务器",
-    "No MCP Servers": "无已安装的 MCP 服务器",
-    "You currently don't have any MCP Servers installed.": "您当前未安装任何 MCP 服务器。",
-    "Add an MCP server above": "在上方添加一个 MCP 服务器",
-    "Build With Google Plugins": "使用 Google 插件构建",
-    "Account": "账号",
-    "Manage your plan, credentials, and general preferences.": "管理您的套餐、凭据与常规偏好。",
-    "Enable Telemetry": "启用遥测",
-    "When toggled on, Antigravity collects usage data to help Google enhance performance and features.": "开启后，Antigravity 会收集使用数据，以帮助 Google 持续改进性能和功能。",
-    "Marketing Emails": "营销电子邮件",
-    "Receive product updates, tips, and promotions from Google Antigravity via email.": "通过电子邮件接收来自 Google Antigravity 的产品更新、技巧与促销信息。",
-    "Your Plan:": "您的套餐：",
-    "Your Plan: Google AI Pro": "您的套餐：Google AI Pro",
-    "You can upgrade to a Google AI Ultra plan to receive the highest rate limits.": "您可以升级到 Google AI Ultra 套餐，获得最高的使用限额。",
-    "Email": "电子邮件",
-    "Browser Settings": "浏览器设置",
-    "Configure the browser subagent. It requires Google Chrome to be installed. The browser subagent can be invoked by typing /browser in the conversation input box.": "配置浏览器子智能体。这需要安装 Google Chrome。可以在对话输入框中输入 /browser 来调用浏览器子智能体。",
-    "Configure the browser subagent. It requires Google Chrome to be installed. The browser subagent can be invoked by typing": "配置浏览器子智能体。这需要安装 Google Chrome。可以通过输入",
-    "in the conversation input box.": "在对话输入框中调用该子智能体。",
-    "Browser Javascript Execution Policy": "浏览器 JavaScript 执行策略",
-    "Controls whether the agent can run custom JavaScript to automate complex browser actions.": "控制智能体是否可以运行自定义 JavaScript 以自动化复杂的浏览器操作。",
-    "Request Review": "请求审查",
-    "Disabled": "已禁用",
-    "Block all browser JavaScript execution.": "阻止所有浏览器 JavaScript 执行。",
-    "Prompt for approval before running browser scripts.": "运行浏览器脚本前请求批准。",
-    "Allow full browser script execution without prompting.": "允许完整浏览器脚本执行，无需提示。",
-    "Actuation Permissions": "动作执行权限",
-    "Browser Actuation Rules": "浏览器操作控制规则",
-    "Configure allowed and denied URLs for browser actuation.": "配置允许或禁止浏览器执行动作的 URL 列表。",
-    "App Settings": "应用设置",
-    "Prevent Sleep": "防止计算机休眠",
-    "Prevent the computer from sleeping while the app is running.": "在应用运行时防止计算机进入休眠状态。",
-    "Keep In Menu Bar": "常驻系统托盘",
-    "The app will be accessible from the menu bar and will keep running in the background when all windows are closed.": "关闭所有窗口后，应用将常驻菜单栏并在后台保持运行。",
-    "Notifications": "通知",
-    "Notification Settings": "通知设置",
-    "To modify notification settings, open your operating system's system preferences.": "如需修改通知设置，请打开您操作系统的系统偏好设置。",
-    "Agent Settings": "智能体设置",
-    "Security Preset": "安全预设",
-    "Choose a predefined security preset for the agent. This controls terminal auto-execution policy, and file access policy.": "为智能体选择预定义的安全预设。这将控制终端自动执行策略和文件访问策略。",
-    "Choose a predefined security preset for the agent.": "为智能体选择预定义的安全预设。",
-    "This controls terminal auto-execution policy, and file access policy.": "这将控制终端自动执行策略和文件访问策略。",
-    "Learn more about Default": "了解关于默认预设的更多信息",
-    "Default": "默认",
-    "Agent Behavior": "智能体行为",
-    "Artifact Review Policy": "工件审查策略",
-    "Specifies agent's behavior when asking for review on artifacts, which are documents it creates to enable a richer conversation experience.": "指定智能体在请求审查工件时的行为。工件是其为提供更丰富的对话体验而创建的文档。",
-    "Always Ask": "始终询问",
-    "Local Permissions": "项目专属权限",
-    "Inherits from global settings. Local permissions have higher priority.": "继承自全局设置。项目专属权限具有更高的优先级。",
-    "Inherits from global settings.": "继承自全局设置。",
-    "Local permissions have higher priority.": "项目专属权限具有更高的优先级。",
-    "Danger Zone": "危险区域",
-    "Delete Project": "删除项目",
-    "Permanently delete this project and all of its conversations.": "永久删除当前项目及其包含的所有历史对话。",
-    "Custom": "自定义",
-    "Outside of folders file access policy": "文件夹外文件访问策略",
-    "Configures how the agent tries to access files outside of its working folders.": "配置智能体如何尝试访问其工作文件夹外部的文件。",
-    "Terminal command Auto execution": "终端命令自动执行",
-    "Controls whether terminal commands require your approval before running.": "控制终端命令在运行前是否需要您批准。",
-    "Require Review": "需要审查",
-    "Add Context": "添加上下文",
-    "Media": "媒体",
-    "Mentions": "提及",
-    "Actions": "操作",
-    "Browser": "浏览器",
-    "Worktree": "工作树",
-    "Projects": "项目",
-    "Review Changes": "审查更改",
-    "Ask anything, @ to mention, / for actions": "输入任何问题，输入 @ 提及，/ 触发操作",
-    "Ask anything, @to mention, /for actions": "输入任何问题，输入 @ 提及，/ 触发操作",
-    "Ask anything, @ to mention, / for commands": "输入任何问题，输入 @ 提及，/ 触发命令",
-    "Ask anything, @to mention, /for commands": "输入任何问题，输入 @ 提及，/ 触发命令",
-    "Overview": "概览",
-    "Artifacts": "工件",
-    "Conversations": "对话",
-    "Agent settings and permissions for conversations outside of projects.": "项目外部对话的智能体设置和权限配置。",
-    "Not in Project": "不在项目中",
-    "Manage project folders, agent settings, and permissions.": "管理项目文件夹、智能体设置和专属权限。",
-    "Requires manual review for all terminal commands and file accesses outside of the working folders.": "运行终端命令以及访问工作区外的文件时，均需手动人工审查。",
-    "Full Machine": "完整本机访问",
-    "All terminal commands require review. The agent can read or write to any file in the machine.": "所有终端命令均需审查，智能体可读写本机上的任意文件。",
-    "Unrestricted": "无限制模式",
-    "Disables all safety barriers for maximal iteration velocity.": "禁用所有安全屏障以获得极致的迭代效率。",
-    "Manually customize individual settings.": "手动自定义各项具体设置。",
-    "Always Proceed": "始终继续",
-    "One Light": "One 浅色",
-    "Solarized Light": "Solarized 浅色",
-    "One Dark Pro": "One 深色 Pro",
-    "Configure AI models and view your quota.": "配置 AI 模型并查看您的配额。",
-    "Refresh": "刷新",
-    "Model Credits": "模型额度",
-    "Enable AI Credit Overages": "启用 AI 额度超量使用",
-    "When toggled on, Antigravity will use your AI credits to fulfill model requests once you're out of model quota. Antigravity will always use your model quota first before using AI credits.": "开启后，当您的模型配额耗尽时，Antigravity 将使用您的 AI 额度来满足模型请求。Antigravity 始终会先使用您的模型配额，然后再使用 AI 额度。",
-    "Model Quota": "模型配额",
-    "View your available model quota and AI credits. Model quota refreshes periodically based on your plan. Enable AI Credit Overages to continue using models when your quota is exhausted.": "查看您可用的模型配额和 AI 额度。模型配额会根据您的套餐定期刷新。启用 AI 额度超量使用，以便在配额耗尽时继续使用模型。",
-    "Shortcuts": "快捷键",
-    "Keyboard shortcuts for quick navigation and control.": "用于快速导航与控制的键盘快捷键。",
-    "Recommended": "推荐",
-    "Open Conversation Picker": "打开对话选择器",
-    "Open File Search": "打开文件搜索",
-    "Focus Input": "聚焦输入框",
-    "New Conversation": "新建对话",
-    "Navigation": "导航",
-    "Go Back": "后退",
-    "Go Forward": "前进",
-    "File Picker": "文件选择器",
-    "Scheduled Tasks": "计划任务",
-    "Select Previous Conversation": "选择上一个对话",
-    "Select Next Conversation": "选择下一个对话",
-    "Open Settings": "打开设置",
-    "Conversation": "对话",
-    "Conversation History": "历史对话",
-    "Conversation history": "历史对话",
-    "Toggle Model Selector": "切换模型选择器",
-    "Toggle Voice Recording": "切换录音",
-    "Find in Pane": "在窗格中查找",
-    "Layout Controls": "布局控制",
-    "Toggle Sidebar": "切换侧边栏",
-    "Toggle Auxiliary Pane": "切换辅助窗格",
-    "Zoom In": "放大",
-    "Zoom Out": "缩小",
-    "Reset Zoom": "重置缩放",
-    "Provide Feedback": "提供反馈",
-    "Feedback Type": "反馈类型",
-    "Bug Report": "Bug 报告",
-    "Feature Request": "功能请求",
-    "Auth and Billing": "账号与计费",
-    "General Feedback": "常规反馈",
-    "Please describe the feature you'd like to see. The more detailed the requirements, the easier it will be for our team to incorporate your ideas. Some helpful information includes:": "请描述您希望获得的新功能。需求描述越详尽，我们的团队就越容易采纳您的想法。以下是一些建议提供的信息：",
-    "What is missing in your workflow": "您的工作流中缺少了什么",
-    "What you would like to see to address this gap in your workflow": "您希望通过什么功能来解决这一需求",
-    "How this feature would help you and other users": "此功能如何帮助您和其他用户",
-    "Describe the feature you would like to see...": "请描述您希望获得的新功能...",
-    "Attach a screenshot (optional)": "添加屏幕截图（可选）",
-    "Attach Antigravity server logs": "附带 Antigravity 服务器日志",
-    "Send feedback as": "发送反馈身份",
-    "We recommend attaching logs. Attaching logs will help the Antigravity team act on and prioritize your feedback.": "我们建议附带日志。这将有助于 Antigravity 团队更快速、更有针对性地处理您的问题。",
-    "Checking for Updates...": "正在检查更新...",
-    "Downloading Update...": "正在下载更新...",
-    "Restart to Update": "重启以应用更新",
-    "Check for Updates": "检查更新",
-    "No updates available": "当前已是最新版本",
-    "Update available": "发现新版本",
-    "Downloading...": "正在下载...",
-    "Update downloaded": "更新已下载完成",
-    "Error checking for updates": "检查更新失败"
-  };
-
-  const coreWords = {
-    "create": "创建", "delete": "删除", "new": "新建", "edit": "编辑", "save": "保存", "cancel": "取消", "confirm": "确认",
-    "close": "关闭", "open": "打开", "stop": "停止", "start": "启动", "run": "运行", "add": "添加", "remove": "移除",
-    "update": "更新", "select": "选择", "clear": "清除", "search": "搜索", "find": "查找", "view": "查看", "show": "显示", "hide": "隐藏",
-    "agent": "智能体", "agents": "智能体", "subagent": "子智能体", "subagents": "子智能体", "task": "任务", "tasks": "任务",
-    "workspace": "工作区", "workspaces": "工作区", "directory": "目录", "folder": "文件夹", "file": "文件", "files": "文件",
-    "command": "命令", "commands": "命令", "terminal": "终端", "console": "控制台", "output": "输出", "input": "输入",
-    "log": "日志", "logs": "日志", "setting": "设置", "settings": "设置", "preference": "偏好", "preferences": "偏好",
-    "theme": "主题", "themes": "主题", "model": "模型", "models": "模型", "capability": "能力", "capabilities": "能力",
-    "running": "运行中", "completed": "已完成", "failed": "已失败", "pending": "等待中", "success": "成功", "error": "错误",
-    "system": "系统", "prompt": "提示词", "instructions": "指令", "description": "描述", "name": "名称", "version": "版本",
-    "active": "活跃", "background": "后台", "parent": "父级", "child": "子级", "branch": "分支", "share": "共享", "inherit": "继承",
-    "original": "原始", "backup": "备份", "duration": "持续时间", "seconds": "秒", "timer": "定时器", "timers": "定时器",
-    "schedule": "调度", "cron": "定时任务", "tools": "工具", "tool": "工具", "execute": "执行", "execution": "执行", "plan": "计划",
-    "chat": "聊天", "message": "消息", "messages": "消息", "history": "历史", "clear history": "清除历史",
-    "changed": "已更改", "review": "审查", "reviewing": "审查中", "reviewed": "已审查",
-    "edited": "编辑了", "canceled": "已取消",
-    "explore": "探索", "change": "更改", "changes": "更改",
-    "turn": "轮次", "turns": "轮次"
-  };
-
-
-  
-
   __DICT_ITEMS__
-  // 将 extraDict 合并到 dictionary（从零注入时必需）
-  if (typeof extraDict !== 'undefined') {
-    for (const ek in extraDict) {
-      if (!(ek in dictionary) && !(ek in coreWords)) dictionary[ek] = extraDict[ek];
+
+  // The JSON bundle is the only built-in dictionary. User overrides are a
+  // replaceable snapshot; removing a key restores its bundled value.
+  const baseDictionary = Object.freeze(Object.assign(Object.create(null), bundledDictionary));
+  let dictionary, lowerIndex, longTextRegex, shortTextRegex;
+  function rebuildDict(overrides) {
+    const next = Object.assign(Object.create(null), baseDictionary, overrides);
+    const index = Object.create(null);
+    for (const key of Object.keys(next)) {
+      if (!(key.toLowerCase() in index)) index[key.toLowerCase()] = key;
     }
-  }
-  // 小写索引：短文本全词校验用（随 rebuildDict 一并重建，热重载后保持生效）
-  const lowerIndex = Object.create(null);
-  function rebuildLowerIndex() {
-    for (const ck in combinedDict) {
-      const clk = ck.toLowerCase();
-      if (!(clk in lowerIndex)) lowerIndex[clk] = ck;
-    }
+    const keys = Object.keys(next).sort((a, b) => b.length - a.length);
+    const longRegex = compileDictionaryRegex(keys.filter(key => key.length >= 4));
+    const shortRegex = compileDictionaryRegex(keys.filter(key => key.length > 3 || /^[a-zA-Z0-9]+$/.test(key)));
+    // Publish only after the complete snapshot has validated and compiled.
+    dictionary = next;
+    lowerIndex = index;
+    longTextRegex = longRegex;
+    shortTextRegex = shortRegex;
   }
 
-  // ===== 外部词典热加载（借鉴 Zero-Touch 架构）=====
-  // 从 ~/.antigravity-zh/zh-CN.json 读外部词典，覆盖嵌入词典；文件变化时自动重载
-  let combinedDict, dictionaryLowerIndex, longTextRegex, shortTextRegex;
-  function rebuildDict() {
-    combinedDict = Object.assign({}, coreWords, dictionary);
-    const sortedKeys = Object.keys(combinedDict).sort((a, b) => b.length - a.length);
-    longTextRegex = compileDictionaryRegex(sortedKeys.filter((key) => key.length >= 4));
-    shortTextRegex = compileDictionaryRegex(sortedKeys.filter((key) => key.length > 3 || /^[a-zA-Z0-9]+$/.test(key)));
-    dictionaryLowerIndex = Object.create(null);
-    for (const key in dictionary) {
-      const lowerKey = key.toLowerCase();
-      if (!(lowerKey in dictionaryLowerIndex)) dictionaryLowerIndex[lowerKey] = key;
-    }
-    rebuildLowerIndex();
-  }
-  rebuildDict();
-
+  let lastExternalContents = null;
   function loadExternalDict() {
     try {
       const fs = require('fs');
-      const os = require('os');
       const path = require('path');
-      const extPath = path.join(os.homedir(), '.antigravity-zh', 'zh-CN.json');
-      if (!fs.existsSync(extPath)) return;
-      const raw = fs.readFileSync(extPath, 'utf-8');
-      const ext = JSON.parse(raw);
-      const items = ext.translations || ext;
-      let added = 0;
-      for (const k in items) {
-        if (k.startsWith('__')) continue;
-        dictionary[k] = items[k]; // 外部词典覆盖嵌入词典
-        added++;
+      const file = path.join(require('os').homedir(), '.antigravity-zh', 'zh-CN.json');
+      const raw = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : '{}';
+      if (raw === lastExternalContents) return;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('词典必须是 JSON 对象');
+      const items = Object.prototype.hasOwnProperty.call(parsed, 'translations') ? parsed.translations : parsed;
+      if (!items || typeof items !== 'object' || Array.isArray(items)) throw new Error('translations 必须是对象');
+      const overrides = Object.create(null);
+      for (const [key, value] of Object.entries(items)) {
+        if (key.startsWith('__')) continue;
+        if (!key.trim() || typeof value !== 'string') throw new Error('词条必须使用非空键和字符串译文');
+        overrides[key] = value;
       }
-      if (added > 0) {
-        rebuildDict();
-        console.log('[Antigravity-ZH] 外部词典已加载 ' + added + ' 条，总计 ' + Object.keys(dictionary).length + ' 条');
-        // 重新翻译当前页面
-        if (document.body) translateNode(document.body);
-      }
-    } catch (e) {
-      // sandbox 或权限不足时静默失败，用嵌入词典
+      rebuildDict(overrides);
+      lastExternalContents = raw;
+      if (document.body) translateNode(document.body);
+    } catch (error) {
+      // A partial save or unavailable preload fs keeps the last valid snapshot.
+      console.warn('[Antigravity-ZH] 外部词典未更新:', error.message);
     }
   }
-  loadExternalDict();
 
-  // 监听外部词典文件变化，热重载
-  try {
-    const fs = require('fs');
-    const os = require('os');
-    const path = require('path');
-    const extPath = path.join(os.homedir(), '.antigravity-zh', 'zh-CN.json');
-    if (fs.existsSync(extPath)) {
-      fs.watch(extPath, { persistent: false }, function () {
-        setTimeout(loadExternalDict, 200); // 防抖：等文件写入完成
+  function watchExternalDict() {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const directory = path.join(require('os').homedir(), '.antigravity-zh');
+      if (!fs.existsSync(directory)) return;
+      let timer;
+      // Watch the directory, so rename-based editor saves do not detach us
+      // from the current file. Coalesce bursts into one reload.
+      const watcher = fs.watch(directory, { persistent: false }, (event, filename) => {
+        if (filename != null && String(filename) !== 'zh-CN.json') return;
+        clearTimeout(timer);
+        timer = setTimeout(loadExternalDict, 200);
       });
+      watcher.on('error', error => console.warn('[Antigravity-ZH] 词典监听失败:', error.message));
+      window.addEventListener('unload', () => {
+        clearTimeout(timer);
+        watcher.close();
+      }, { once: true });
+    } catch (error) {
+      console.warn('[Antigravity-ZH] 无法监听外部词典:', error.message);
     }
-  } catch (e) {}
+  }
 
   function escapeRegExp(str) {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -602,7 +218,6 @@
     [/^(\d+) commits? to push$/i, '$1 个待推送的提交'],
     [/^(\d+) commits? to pull$/i, '$1 个待拉取的提交'],
     [/^(?:All |全部)?scheduled tasks run as (.+?)\.?$/i, '所有计划任务均以 $1 模型运行。'],
-    [/^scheduled tasks run as (.+?)\.?$/i, '计划任务均以 $1 模型运行。'],
     [/^(?:All |全部)?plugins run as (.+?)\.?$/i, '所有插件均以 $1 模型运行。'],
     [/^(?:All |全部)?automations run as (.+?)\.?$/i, '所有自动化任务均以 $1 模型运行。'],
     [/^Review permissions for (.+)$/i, '审查 $1 的权限'],
@@ -668,6 +283,8 @@
     [/^(\d+) archived conversations?$/i, '$1 个已归档会话']
   ];
 
+  const allowLowerTokens = new Set(['today', 'yesterday', 'now', 'am', 'pm', 'week', 'month', 'verbose']);
+
   function translateString(text) {
     if (!text) return text;
     const trimmed = text.trim();
@@ -678,13 +295,13 @@
       const puncMap = { '?': '？', '.': '。', '!': '！', ',': '，', ';': '；', ':': '：' };
       let puncOut = '';
       for (const ch of trimmed) puncOut += puncMap[ch] || ch;
-      return text.replace(trimmed, puncOut);
+      return text.replace(trimmed, () => puncOut);
     }
 
     // --- Dynamic Agent Logs Regex Rules (Fixed Escaping) ---
     let dynamicMatch = trimmed;
     let isDynamic = false;
-    
+
     if (/^Worked for [\d smhd.]+$/.test(trimmed)) {
       dynamicMatch = dynamicMatch.replace(/Worked for (.+)$/, function (_, d) {
         return '已工作 ' + fmtDuration(d);
@@ -719,7 +336,7 @@
     }
 
     if (isDynamic) {
-      return text.replace(trimmed, dynamicMatch);
+      return text.replace(trimmed, () => dynamicMatch);
     }
     // --- End Dynamic Regex ---
 
@@ -727,24 +344,23 @@
     // 正规英文界面中，UI 标题与按钮均首字母大写（如 Project, Workspace, Task, Run）。
     // 纯小写单个单词（如 project, workspace, run, task, file, branch, app）绝大多数来源于用户实体。
     const isSingleLowerToken = /^[a-z0-9_-]+$/.test(trimmed);
-    const allowLowerTokens = new Set(['today', 'yesterday', 'now', 'am', 'pm', 'week', 'month', 'verbose']);
     if (isSingleLowerToken && !allowLowerTokens.has(trimmed)) {
       return text;
     }
 
     // 1. Direct Literal Match (Exact match including punctuation)
     if (dictionary[trimmed]) {
-      return text.replace(trimmed, dictionary[trimmed]);
+      return text.replace(trimmed, () => dictionary[trimmed]);
     }
-    
+
     const trimmedLower = trimmed.toLowerCase();
-    const lowerKey = dictionaryLowerIndex[trimmedLower];
+    const lowerKey = lowerIndex[trimmedLower];
     if (lowerKey !== undefined) {
       // 词汇防御：如果原文是纯单单词小写标识符（如 project, workspace, app），
       // 但词典里对应的是首字母大写（如 Project, Workspace），则绝不降级误伤用户变量/文件夹名
       const isSingleLowerToken = /^[a-z0-9_-]+$/.test(trimmed);
       if (!(isSingleLowerToken && lowerKey !== trimmed)) {
-        return text.replace(trimmed, dictionary[lowerKey]);
+        return text.replace(trimmed, () => dictionary[lowerKey]);
       }
     }
 
@@ -759,7 +375,7 @@
     if (match) {
       matchPunc = match[0];
       core = core.slice(0, -matchPunc.length).trim();
-      
+
       // Determine the correct Chinese counterpart punctuation
       if (matchPunc === '.') trailPunc = '。';
       else if (matchPunc === '?') trailPunc = '？';
@@ -778,7 +394,7 @@
       coreTranslated = dictionary[core];
     } else {
       const coreLower = core.toLowerCase();
-      const lowerKey = dictionaryLowerIndex[coreLower];
+      const lowerKey = lowerIndex[coreLower];
       if (lowerKey !== undefined) {
         const isSingleLowerToken = /^[a-z0-9_-]+$/.test(core);
         if (!(isSingleLowerToken && lowerKey !== core)) {
@@ -788,7 +404,7 @@
     }
 
     if (coreTranslated) {
-      return text.replace(trimmed, coreTranslated + trailPunc);
+      return text.replace(trimmed, () => coreTranslated + trailPunc);
     }
 
     // 2.5 动态正则规则兜底（在词典精确匹配之后执行，避免劫持已校对的词条）
@@ -796,7 +412,7 @@
       if (dynamicRules[ri][0].test(trimmed)) {
         var ruleOut = trimmed.replace(dynamicRules[ri][0], dynamicRules[ri][1]);
         if (ruleOut !== trimmed) {
-          return text.replace(trimmed, ruleOut);
+          return text.replace(trimmed, () => ruleOut);
         }
       }
     }
@@ -819,7 +435,7 @@
         longTemp = core.replace(longTextRegex, function (m) {
           longMatchedChars += (m.match(/[A-Za-z]/g) || []).length;
           longReplaced = true;
-          return combinedDict[lowerIndex[m.toLowerCase()]];
+          return dictionary[lowerIndex[m.toLowerCase()]];
         });
       }
       // 覆盖率门槛与纯正度防御：
@@ -841,7 +457,7 @@
       if (matchPunc) {
         lfinal += trailPunc;
       }
-      return text.replace(trimmed, lfinal);
+      return text.replace(trimmed, () => lfinal);
     }
 
     // 短文本：已含中文的中英混排短语不再逐词翻译，防止二次污染
@@ -868,7 +484,7 @@
     if (shortTextRegex) {
       temp = core.replace(shortTextRegex, function (m) {
         replaced = true;
-        return combinedDict[lowerIndex[m.toLowerCase()]];
+        return dictionary[lowerIndex[m.toLowerCase()]];
       });
     }
 
@@ -878,7 +494,7 @@
     if (matchPunc) {
       finalTranslated += trailPunc;
     }
-    return text.replace(trimmed, finalTranslated);
+    return text.replace(trimmed, () => finalTranslated);
   }
 
   // 用于模糊匹配类名中包含代码/预览/diff相关关键词的正则
@@ -886,7 +502,7 @@
 
   function shouldSkipNode(node, checkAncestors = true) {
     if (!node) return true;
-    
+
     // 如果是文本节点，我们检查其父元素；如果是属性/元素节点，检查自身
     const element = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
     if (!element) return false;
@@ -906,16 +522,17 @@
 
     // 3. 检查元素自身是否带有代码语言标记属性
     if (element.getAttribute) {
-      if (element.getAttribute('data-language') || 
-          element.getAttribute('data-code') ||
-          element.getAttribute('data-line') ||
-          element.getAttribute('data-line-number')) {
+      if (element.getAttribute('data-language') !== null ||
+          element.getAttribute('data-code') !== null ||
+          element.getAttribute('data-line') !== null ||
+          element.getAttribute('data-line-number') !== null) {
         return true;
       }
     }
 
     // 4. 入口节点向上检查祖先；子节点复用已检查过的父链
     let cur = element;
+    let allowThinkingTrigger = false;
     while (cur) {
       // 4a0. 祖先标签若为代码或脚本标签（PRE, CODE, KBD, SAMP 等），绝对跳过！
       if (cur.tagName && skipTags.includes(cur.tagName)) {
@@ -928,16 +545,18 @@
       }
 
       // 4a. contenteditable 区域
-      if (cur.getAttribute && cur.getAttribute('contenteditable') === 'true') {
+      const editable = cur.getAttribute && cur.getAttribute('contenteditable');
+      if (cur.isContentEditable || (editable !== null && editable !== undefined &&
+          ['', 'true', 'plaintext-only'].includes(editable.toLowerCase()))) {
         return true;
       }
 
       // 4b. 检查 data 属性（代码块语言标记等）
       if (cur.getAttribute) {
-        if (cur.getAttribute('data-language') || 
-            cur.getAttribute('data-code') ||
-            cur.getAttribute('data-line') ||
-            cur.getAttribute('data-line-number')) {
+        if (cur.getAttribute('data-language') !== null ||
+            cur.getAttribute('data-code') !== null ||
+            cur.getAttribute('data-line') !== null ||
+            cur.getAttribute('data-line-number') !== null) {
           return true;
         }
       }
@@ -961,9 +580,9 @@
         if (testId === 'thinking-collapsible-trigger' ||
             testId === 'worked-for-collapsible' ||
             testId === 'tool-group-collapsible') {
-          break;
+          allowThinkingTrigger = true;
         }
-        if (testId === 'thinking-collapsible' ||
+        if ((testId === 'thinking-collapsible' && !allowThinkingTrigger) ||
             testId === 'planner-response-text' ||
             testId === 'artifact-view') {
           return true;
@@ -972,23 +591,23 @@
 
       // 4b3. 用户实体数据保护：项目名称、工作区名称、代码仓库、符号变量、文件路径、代码Diff、消息内容等用户自定义数据容器
       if (cur.getAttribute) {
-        if (cur.getAttribute('data-project-name') ||
-            cur.getAttribute('data-project-card') ||
-            cur.getAttribute('data-project-label') ||
-            cur.getAttribute('data-repo-slug') ||
-            cur.getAttribute('data-card-name') ||
-            cur.getAttribute('data-member-name') ||
-            cur.getAttribute('data-symbol-name') ||
-            cur.getAttribute('data-variable-name') ||
-            cur.getAttribute('data-file-uri') ||
-            cur.getAttribute('data-uri') ||
-            cur.getAttribute('data-turn-content') ||
-            cur.getAttribute('data-diff') ||
-            cur.getAttribute('data-current-original-line') ||
-            cur.getAttribute('data-current-modified-line') ||
-            cur.getAttribute('data-arg-key') ||
-            cur.getAttribute('data-arg-type') ||
-            cur.getAttribute('data-slug-base')) {
+        if (cur.getAttribute('data-project-name') !== null ||
+            cur.getAttribute('data-project-card') !== null ||
+            cur.getAttribute('data-project-label') !== null ||
+            cur.getAttribute('data-repo-slug') !== null ||
+            cur.getAttribute('data-card-name') !== null ||
+            cur.getAttribute('data-member-name') !== null ||
+            cur.getAttribute('data-symbol-name') !== null ||
+            cur.getAttribute('data-variable-name') !== null ||
+            cur.getAttribute('data-file-uri') !== null ||
+            cur.getAttribute('data-uri') !== null ||
+            cur.getAttribute('data-turn-content') !== null ||
+            cur.getAttribute('data-diff') !== null ||
+            cur.getAttribute('data-current-original-line') !== null ||
+            cur.getAttribute('data-current-modified-line') !== null ||
+            cur.getAttribute('data-arg-key') !== null ||
+            cur.getAttribute('data-arg-type') !== null ||
+            cur.getAttribute('data-slug-base') !== null) {
           return true;
         }
         const testId = cur.getAttribute('data-testid');
@@ -1038,7 +657,7 @@
 
       // 4d. 精确类名匹配 — 已知的编辑器/终端/输入区域
       if (cur.classList && (
-        cur.classList.contains('monaco-editor') || 
+        cur.classList.contains('monaco-editor') ||
         cur.classList.contains('editor-instance') ||
         cur.classList.contains('xterm') ||
         cur.classList.contains('terminal-instance') ||
@@ -1060,135 +679,117 @@
         }
       }
 
-      // 4f. 检查 tagName: 如果在 PRE 或 CODE 结构内部也应跳过
-      if (cur.tagName === 'PRE' || cur.tagName === 'CODE') {
-        return true;
-      }
-
       if (!checkAncestors) break;
-      cur = cur.parentElement;
+      cur = cur.parentElement || (cur.getRootNode && cur.getRootNode().host);
     }
 
     return false;
   }
 
-  function translateNode(node, checkAncestors = true) {
-    if (!node) return;
-    if (shouldSkipNode(node, checkAncestors)) return;
+  const textStates = new WeakMap();
+  const attributeStates = new WeakMap();
+  const shadowRoots = new WeakMap();
+  const observedRoots = new WeakMap();
+  const translatedAttributes = ['placeholder', 'title', 'aria-label'];
 
+  function translateTextNode(node) {
+    const current = node.nodeValue;
+    const state = textStates.get(node);
+    const original = state && current === state.last ? state.original : current;
+    const translated = translateString(original);
+    textStates.set(node, { original, last: translated });
+    if (current !== translated) node.nodeValue = translated;
+  }
+
+  function translateAttribute(node, name) {
+    if (!translatedAttributes.includes(name)) return;
+    let states = attributeStates.get(node);
+    if (!states) {
+      states = Object.create(null);
+      attributeStates.set(node, states);
+    }
+    const current = node.getAttribute(name);
+    if (current === null) {
+      delete states[name];
+      return;
+    }
+    const state = states[name];
+    const original = state && current === state.last ? state.original : current;
+    const translated = translateString(original);
+    states[name] = { original, last: translated };
+    if (current !== translated) node.setAttribute(name, translated);
+  }
+
+  function translateNode(node, checkAncestors = true) {
+    if (!node || shouldSkipNode(node, checkAncestors)) return;
     if (node.nodeType === Node.TEXT_NODE) {
-      const original = node.nodeValue;
-      const translated = translateString(original);
-      if (original !== translated) {
-        node.nodeValue = translated;
-      }
-    } else if (node.nodeType === Node.ELEMENT_NODE) {
-      ['placeholder', 'title', 'aria-label', 'value'].forEach(attr => {
-        if (node.hasAttribute && node.hasAttribute(attr)) {
-          // 双重锁死：绝对不翻译任何输入框或编辑区的用户 value 属性
-          if (attr === 'value' && (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA')) {
-            return;
-          }
-          const original = node.getAttribute(attr);
-          if (original && (node.tagName !== 'INPUT' || node.type === 'button' || node.type === 'submit' || attr !== 'value')) {
-            const translated = translateString(original);
-            if (original !== translated) {
-              node.setAttribute(attr, translated);
-            }
-          }
+      translateTextNode(node);
+    } else if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        translatedAttributes.forEach(attr => translateAttribute(node, attr));
+        const shadow = node.shadowRoot || shadowRoots.get(node);
+        if (shadow) {
+          translateNode(shadow, false);
+          observeRoot(shadow);
         }
-      });
-      if (node.shadowRoot) {
-        translateNode(node.shadowRoot, false);
       }
-      for (let i = 0; i < node.childNodes.length; i++) {
-        translateNode(node.childNodes[i], false);
-      }
-    } else if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
-      for (let i = 0; i < node.childNodes.length; i++) {
-        translateNode(node.childNodes[i], false);
-      }
+      for (const child of node.childNodes) translateNode(child, false);
     }
   }
 
   const observerConfig = {
-    childList: true,
-    subtree: true,
-    characterData: true,
-    attributes: true,
-    attributeFilter: ['placeholder', 'title', 'aria-label', 'value']
+    childList: true, subtree: true, characterData: true, attributes: true,
+    attributeFilter: translatedAttributes
   };
 
-  const observers = [];
-
   function observeRoot(root) {
-    const observer = new MutationObserver((mutations) => {
-      observer.disconnect();
-      try {
-        for (const mutation of mutations) {
+    if (observedRoots.has(root)) return;
+    const observer = new MutationObserver(mutations => {
+      // Keep observing while translating: our own writes are idempotent, and
+      // disconnecting would discard synchronous application mutations.
+      const added = new Set();
+      for (const mutation of mutations) {
+        try {
           if (mutation.type === 'childList') {
-            mutation.addedNodes.forEach(node => translateNode(node));
-          } else if (mutation.type === 'characterData') {
-            const node = mutation.target;
-            if (!shouldSkipNode(node)) {
-              const original = node.nodeValue;
-              const translated = translateString(original);
-              if (original !== translated) {
-                node.nodeValue = translated;
-              }
-            }
-          } else if (mutation.type === 'attributes') {
-            const target = mutation.target;
-            if (!shouldSkipNode(target)) {
-              const attrName = mutation.attributeName;
-              if (attrName === 'value' && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
-                continue;
-              }
-              const original = target.getAttribute(attrName);
-              if (original) {
-                const translated = translateString(original);
-                if (original !== translated) {
-                  target.setAttribute(attrName, translated);
-                }
-              }
-            }
+            mutation.addedNodes.forEach(node => added.add(node));
+          } else if (!shouldSkipNode(mutation.target)) {
+            if (mutation.type === 'characterData') translateTextNode(mutation.target);
+            else if (mutation.type === 'attributes') translateAttribute(mutation.target, mutation.attributeName);
           }
+        } catch (error) {
+          console.error('Observer translation error:', error);
         }
-      } catch (e) {
-        console.error('Observer translation error:', e);
       }
-      observer.observe(root, observerConfig);
+      for (const node of added) {
+        try { translateNode(node); }
+        catch (error) { console.error('Observer translation error:', error); }
+      }
     });
+    observedRoots.set(root, observer);
     observer.observe(root, observerConfig);
-    observers.push(observer);
   }
 
-  // Hook attachShadow
   const originalAttachShadow = Element.prototype.attachShadow;
   Element.prototype.attachShadow = function() {
-    const shadowRoot = originalAttachShadow.apply(this, arguments);
-    observeRoot(shadowRoot);
-    return shadowRoot;
+    const root = originalAttachShadow.apply(this, arguments);
+    shadowRoots.set(this, root);
+    observeRoot(root);
+    return root;
   };
 
   function startObserver() {
-    if (!document.body) {
-      document.addEventListener('DOMContentLoaded', startObserver);
-      return;
-    }
-    try {
-      translateNode(document.body);
-    } catch (e) {
-      console.error('Translation error:', e);
-    }
+    if (!document.body) return;
+    try { translateNode(document.body); }
+    catch (error) { console.error('Translation error:', error); }
     observeRoot(document.body);
   }
 
+  rebuildDict(Object.create(null));
+  loadExternalDict();
+  watchExternalDict();
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', startObserver);
+    document.addEventListener('DOMContentLoaded', startObserver, { once: true });
   } else {
     startObserver();
   }
-
-
 })();
