@@ -1,4 +1,4 @@
-# Antigravity 中文汉化增强版
+# Antigravity 中文汉化增强版 🌏
 
 <p align="center">
   <a href="https://github.com/shadowzhz/antigravity-zh/actions/workflows/tests.yml"><img src="https://github.com/shadowzhz/antigravity-zh/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
@@ -7,29 +7,29 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"></a>
 </p>
 
-专为 **Google Antigravity 桌面客户端（Agent Manager）** 打造的高性能、无侵入式简体中文汉化补丁。<br>
-纯 Python 标准库编写，**无需 Node.js / npm**，一键安装、即时热更、安全备份、无损还原。
+> **专为 Google Antigravity 桌面客户端（Agent Manager）打造的高性能、无侵入式简体中文汉化补丁。**  
+> 纯 Python 标准库编写，**无需 Node.js / npm**。一键安装、即时热更、安全事务备份、无损还原。
 
 ---
 
-## ✨ 核心特性
+## ✨ 核心特性 (Features)
 
-- ⚡ **零外部依赖**：仅需 Python 3.7+ 标准库，免安装 Node.js、npm 或任何第三方 Python 包。
-- 🛡️ **专为开发者设计的防误翻保护**：
-  - **代码与终端隔离**：自动跳过 `<pre>`、`<code>`、终端模拟器（`.xterm`）、代码 Diff 视图及输入区域。
+- ⚡ **零外部依赖**：仅需 Python 3.7+ 标准库，免安装 Node.js、npm 或任何第三方 Python 轮子。
+- 🛡️ **开发者级防误翻保护**：
+  - **代码与终端隔离**：自动跳过 `<pre>`、`<code>`、终端模拟器（`.xterm`）、代码 Diff 视图及用户输入区域。
   - **全小写实体免伤**：首创孤立小写词保护机制，项目名（如 `project`）、目录名（如 `workspace`）、变量名及 Shell 命令保持英文原貌，杜绝误伤。
   - **AI 思考与指令保护**：模型思考链（Chain of Thought）、工具调用摘要及 `/` 快捷指令原生呈现。
 - 🌐 **深度本地化覆盖**：内置 **6,300+ 条** 高质量词条，全面汉化主界面、偏好设置、原生系统菜单、托盘及启动向导。
 - 🔄 **词典即时热重载**：支持用户自定义扩展词典，编辑保存即可即时生效，无需重启客户端。
-- 🔒 **安全事务与无损还原**：成套备份 `app.asar` 与 `unpacked` 资源，具备 SHA256 完整性校验、原子回滚机制与文件锁，可随时一键还原官方原版。
-- 💻 **跨平台自动适配**：内置 Linux、macOS（集成 ad-hoc 自动重签名）与 Windows 的标准路径智能探测。
+- 🔒 **安全事务与无损还原**：成套备份 `app.asar` 与 `unpacked` 资源，具备 SHA256 完整性校验、原子回滚机制与文件锁，随时一键还原官方原版。
+- 💻 **跨平台智能探测**：内置 Linux、macOS（集成 ad-hoc 自动重签名）与 Windows 的标准路径智能探测。
 
 ---
 
-## 🚀 快速开始
+## ⚡ 快速开始 (Quick Start)
 
 > [!IMPORTANT]
-> 安装或还原前，请**完全退出 Antigravity 客户端**（包括系统托盘中的后台进程）。
+> 安装或还原前，请**完全退出 Antigravity 客户端**（包括系统托盘中的后台驻留进程）。
 
 ### 1. 克隆仓库
 
@@ -43,7 +43,7 @@ cd antigravity-zh
 ```bash
 python3 install.py
 ```
-> **Windows 用户**：若未配置 `python3` 命令，请使用 `py -3 install.py` 或 `python install.py`。
+> **Windows 用户**：若未配置 `python3` 别名，请使用 `py -3 install.py` 或 `python install.py`。
 
 若客户端位于非默认路径，使用 `--asar` 手动指定目标文件：
 ```bash
@@ -54,7 +54,7 @@ python3 install.py --asar "/path/to/resources/app.asar"
 
 ---
 
-## 📋 常用管理命令
+## 📋 常用管理命令 (Management)
 
 | 操作 | 命令 | 说明 |
 | :--- | :--- | :--- |
@@ -62,11 +62,11 @@ python3 install.py --asar "/path/to/resources/app.asar"
 | **查看状态** | `python3 install.py --status` | 检查汉化标记、文件大小与 SHA256 校验信息 |
 | **一键还原** | `python3 install.py --restore` | 完整还原为官方原版，保留用户自定义词典 |
 
-> 若安装时指定了自定义 `--asar` 路径，执行 `--status` 或 `--restore` 时需传入相同的 `--asar` 参数。
+> *注：若安装时指定了自定义 `--asar` 路径，执行 `--status` 或 `--restore` 时需传入相同的 `--asar` 参数。*
 
 ---
 
-## ⚙️ 自定义词典与热重载
+## ⚙️ 自定义词典与热重载 (Custom Dictionary)
 
 安装器首次运行时，会在用户家目录下创建独立的用户词典文件，其优先级高于内置词典：
 
@@ -84,7 +84,7 @@ python3 install.py --asar "/path/to/resources/app.asar"
 
 ---
 
-## 🔍 路径自动探测
+## 🔍 路径自动探测 (Path Discovery)
 
 安装器按以下顺序自动匹配首个存在的客户端路径：
 
@@ -96,7 +96,21 @@ python3 install.py --asar "/path/to/resources/app.asar"
 
 ---
 
-## ❓ 常见问题 (FAQ)
+## 📁 项目结构 (Project Structure)
+
+```text
+antigravity-zh/
+├── install.py         # 汉化安装器主入口（路径自发现、事务备份、无损还原与签名维护）
+├── asar.py            # 纯 Python 实现的轻量级 ASAR 打包/解包与流式补丁引擎
+├── dicts/             # 内置词库数据（6,300+ 条高质量翻译字典）
+├── SKILL.md           # Antigravity Agent Skill 规范集成描述
+├── tests/             # 自动化测试套件（ASAR 读写、事务回滚与 JS 翻译引擎测试）
+└── LICENSE            # MIT 开源许可证
+```
+
+---
+
+## 🛠️ 常见问题 (FAQ / Troubleshooting)
 
 <details>
 <summary><b>Q: 官方客户端升级后汉化失效怎么办？</b></summary>
@@ -132,7 +146,7 @@ python3 install.py --asar "/your/custom/path/resources/app.asar"
 
 ---
 
-## 🛠️ 开发与测试
+## 🧪 开发与测试 (Testing)
 
 本项目自带完整的自动化测试套件：
 
@@ -149,7 +163,7 @@ node --test tests/engine.test.cjs
 
 ---
 
-## 📄 开源许可与致谢
+## 📄 开源许可与致谢 (License)
 
 - 本项目采用 [MIT License](LICENSE) 协议开源。
 - 基于 [zhonghugo/antigravity-zh](https://github.com/zhonghugo/antigravity-zh) 继续开发与维护，增强了匹配引擎、防误翻隔离与事务安全机制。感谢原作者与社区贡献者的付出！
