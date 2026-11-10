@@ -1,5 +1,5 @@
 // AGZH ENGINE START
-(function() {
+;(function() {
   __DICT_ITEMS__
 
   // The JSON bundle is the only built-in dictionary. User overrides are a
@@ -279,8 +279,7 @@
     [/^View archived in the sidebar\s*\(/i, '在侧边栏查看已归档 ('],
     [/^View archived in the sidebar$/i, '在侧边栏查看已归档'],
     [/^menu\)\.$/i, '菜单）。'],
-    [/^menu\)$/i, '菜单)'],
-    [/^(\d+) archived conversations?$/i, '$1 个已归档会话']
+    [/^menu\)$/i, '菜单)']
   ];
 
   const allowLowerTokens = new Set(['today', 'yesterday', 'now', 'am', 'pm', 'week', 'month', 'verbose']);
@@ -500,55 +499,43 @@
   // 用于模糊匹配类名中包含代码/预览/diff相关关键词的正则
   const codeClassPattern = /(?:^|[\s_-])(hljs|shiki|prism|monaco|codemirror|line-number|line-content|gutter|codeblock|code-block|code-view|code-preview|file-preview|file-content|syntax-highlighting)(?:$|[\s_-])/i;
 
-  function shouldSkipNode(node, checkAncestors = true) {
-    if (!node) return true;
+  const skipTags = ['SCRIPT', 'STYLE', 'CODE', 'PRE', 'NOSCRIPT', 'KBD', 'SAMP', 'VAR'];
+
+  // translate: translate content; children: traverse only; skip: prune subtree.
+  function getTranslationScope(node) {
+    if (!node) return 'skip';
 
     // 如果是文本节点，我们检查其父元素；如果是属性/元素节点，检查自身
     const element = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
-    if (!element) return false;
-
-    // 1. 绝对不能翻译的脚本/样式/代码块标签
-    const skipTags = ['SCRIPT', 'STYLE', 'CODE', 'PRE', 'NOSCRIPT', 'KBD', 'SAMP', 'VAR'];
-    if (skipTags.includes(element.tagName)) {
-      return true;
-    }
+    if (!element) return 'translate';
 
     // 2. 如果是文本节点，并且其父元素是输入框/文本域，必须跳过文本节点翻译
     if (node.nodeType === Node.TEXT_NODE) {
       if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
-        return true;
+        return 'skip';
       }
     }
 
-    // 3. 检查元素自身是否带有代码语言标记属性
-    if (element.getAttribute) {
-      if (element.getAttribute('data-language') !== null ||
-          element.getAttribute('data-code') !== null ||
-          element.getAttribute('data-line') !== null ||
-          element.getAttribute('data-line-number') !== null) {
-        return true;
-      }
-    }
-
-    // 4. 入口节点向上检查祖先；子节点复用已检查过的父链
+    // Scan ancestors once, retaining content protection until all hard exclusions are checked.
     let cur = element;
     let allowThinkingTrigger = false;
+    let skipContent = false;
     while (cur) {
       // 4a0. 祖先标签若为代码或脚本标签（PRE, CODE, KBD, SAMP 等），绝对跳过！
       if (cur.tagName && skipTags.includes(cur.tagName)) {
-        return true;
+        return 'skip';
       }
 
       // 4a0b. 语法高亮代码 token 元素（如 Prism/Shiki/hljs token），绝对跳过
-      if (cur.classList && (cur.classList.contains('token') || codeClassPattern.test(cur.className || ''))) {
-        return true;
+      if (cur.classList && cur.classList.contains('token')) {
+        return 'skip';
       }
 
       // 4a. contenteditable 区域
       const editable = cur.getAttribute && cur.getAttribute('contenteditable');
       if (cur.isContentEditable || (editable !== null && editable !== undefined &&
           ['', 'true', 'plaintext-only'].includes(editable.toLowerCase()))) {
-        return true;
+        return 'skip';
       }
 
       // 4b. 检查 data 属性（代码块语言标记等）
@@ -557,7 +544,7 @@
             cur.getAttribute('data-code') !== null ||
             cur.getAttribute('data-line') !== null ||
             cur.getAttribute('data-line-number') !== null) {
-          return true;
+          return 'skip';
         }
       }
 
@@ -567,12 +554,12 @@
       //        而工具调用摘要正文（toolSummary，具有 .truncate 且父级为 .whitespace-nowrap）必须完全保留英文原文。
       //      - 「已思考 X 秒」触发药丸是系统 UI，放行汉化。
       if (cur.classList && cur.classList.contains('cursor-edit')) {
-        return true;
+        return 'skip';
       }
       if (cur.classList && cur.classList.contains('truncate')) {
         const p = cur.parentElement;
         if (p && p.classList && p.classList.contains('whitespace-nowrap')) {
-          return true; // 跳过智能体动态生成的工具调用摘要
+          return 'skip'; // 跳过智能体动态生成的工具调用摘要
         }
       }
       if (cur.getAttribute) {
@@ -582,10 +569,12 @@
             testId === 'tool-group-collapsible') {
           allowThinkingTrigger = true;
         }
-        if ((testId === 'thinking-collapsible' && !allowThinkingTrigger) ||
-            testId === 'planner-response-text' ||
+        if (testId === 'thinking-collapsible' && !allowThinkingTrigger) {
+          skipContent = true;
+        }
+        if (testId === 'planner-response-text' ||
             testId === 'artifact-view') {
-          return true;
+          return 'skip';
         }
       }
 
@@ -608,7 +597,7 @@
             cur.getAttribute('data-arg-key') !== null ||
             cur.getAttribute('data-arg-type') !== null ||
             cur.getAttribute('data-slug-base') !== null) {
-          return true;
+          return 'skip';
         }
         const testId = cur.getAttribute('data-testid');
         if (testId) {
@@ -617,7 +606,7 @@
               testId === 'project-header' ||
               testId === 'conversation-navigator-card' ||
               testId === 'sidecar-project-link') {
-            return true;
+            return 'skip';
           }
         }
       }
@@ -627,7 +616,7 @@
         if (cur.getAttribute('data-mention-menu') !== null ||
             cur.getAttribute('data-lexical-beautiful-mention') !== null ||
             cur.getAttribute('data-slash-menu') !== null) {
-          return true;
+          return 'skip';
         }
         const testId = cur.getAttribute('data-testid');
         if (testId && (
@@ -636,7 +625,7 @@
             testId.startsWith('slash-menu') ||
             testId === 'command-menu'
         )) {
-          return true;
+          return 'skip';
         }
       }
       if (cur.classList && (
@@ -644,14 +633,14 @@
           cur.classList.contains('slash-menu') ||
           cur.classList.contains('slash-command')
       )) {
-        return true;
+        return 'skip';
       }
 
       // 4c. 检查 role 属性
       if (cur.getAttribute) {
         const role = cur.getAttribute('role');
         if (role === 'code') {
-          return true;
+          return 'skip';
         }
       }
 
@@ -664,7 +653,7 @@
         cur.classList.contains('input-area') ||
         cur.classList.contains('chat-input')
       )) {
-        return true;
+        return 'skip';
       }
 
       // 4e. 类名匹配 — 精确与模糊检测（高精度防御，防止 Tailwind 选择器如 [&_code] 引起的误杀）
@@ -675,15 +664,14 @@
           lowerClass.includes('select-contain') ||
           codeClassPattern.test(cur.className)
         ) {
-          return true;
+          return 'skip';
         }
       }
 
-      if (!checkAncestors) break;
       cur = cur.parentElement || (cur.getRootNode && cur.getRootNode().host);
     }
 
-    return false;
+    return skipContent ? 'children' : 'translate';
   }
 
   const textStates = new WeakMap();
@@ -720,20 +708,24 @@
     if (current !== translated) node.setAttribute(name, translated);
   }
 
-  function translateNode(node, checkAncestors = true) {
-    if (!node || shouldSkipNode(node, checkAncestors)) return;
+  function translateNode(node) {
+    // Thinking containers must be traversed to reach their UI triggers, but
+    // their prose remains protected. All other exclusions still prune subtrees.
+    const scope = getTranslationScope(node);
+    if (scope === 'skip') return;
+    const skipContent = scope === 'children';
     if (node.nodeType === Node.TEXT_NODE) {
-      translateTextNode(node);
+      if (!skipContent) translateTextNode(node);
     } else if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
       if (node.nodeType === Node.ELEMENT_NODE) {
-        translatedAttributes.forEach(attr => translateAttribute(node, attr));
+        if (!skipContent) translatedAttributes.forEach(attr => translateAttribute(node, attr));
         const shadow = node.shadowRoot || shadowRoots.get(node);
         if (shadow) {
-          translateNode(shadow, false);
+          translateNode(shadow);
           observeRoot(shadow);
         }
       }
-      for (const child of node.childNodes) translateNode(child, false);
+      for (const child of node.childNodes) translateNode(child);
     }
   }
 
@@ -752,7 +744,7 @@
         try {
           if (mutation.type === 'childList') {
             mutation.addedNodes.forEach(node => added.add(node));
-          } else if (!shouldSkipNode(mutation.target)) {
+          } else if (getTranslationScope(mutation.target) === 'translate') {
             if (mutation.type === 'characterData') translateTextNode(mutation.target);
             else if (mutation.type === 'attributes') translateAttribute(mutation.target, mutation.attributeName);
           }

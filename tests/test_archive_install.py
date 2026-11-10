@@ -230,13 +230,41 @@ class InstallTests(unittest.TestCase):
         first = preload.read_bytes()
         install.patch_file(str(preload), {'Settings': '设置'})
         self.assertEqual(first, preload.read_bytes())
-        self.assertTrue(preload.read_text().startswith('globalThis.original = true;'))
-        self.assertNotIn(install.LEGACY_ENGINE_START_MARKER, preload.read_text())
+        self.assertTrue(preload.read_text(encoding='utf-8').startswith('globalThis.original = true;'))
+        self.assertNotIn(install.LEGACY_ENGINE_START_MARKER, preload.read_text(encoding='utf-8'))
 
     def test_status_never_extracts_archive(self):
         with patch.object(asar, 'extract', side_effect=AssertionError('must not extract')):
-            install.cmd_status(str(self.archive), str(self.archive.parent))
+            install.cmd_status(str(self.archive))
         self.assertIn('未注入', self.output.getvalue())
+
+    def test_quit_dialog_patch_preserves_inline_and_multiline_javascript(self):
+        dist = self.root / 'dist'
+        dist.mkdir()
+        main = dist / 'main.js'
+        for separator in (' ', '\n'):
+            for trailing_comma in ('', ','):
+                with self.subTest(separator=separator, trailing_comma=trailing_comma):
+                    code = ("module.exports = {buttons: ['Cancel', 'Quit']," + separator +
+                            "title: 'Confirm Quit'" + trailing_comma + "};")
+                    main.write_text(code, encoding='utf-8')
+                    install.patch_quit_dialog(str(self.root))
+                    first = main.read_bytes()
+                    install.patch_quit_dialog(str(self.root))
+                    self.assertEqual(main.read_bytes(), first)
+                    result = subprocess.run(
+                        ['node', '-e', 'console.log(JSON.stringify(require(process.argv[1])))', str(main)],
+                        capture_output=True, encoding='utf-8', check=True)
+                    self.assertEqual(json.loads(result.stdout),
+                                     {'buttons': ['取消', '退出'], 'title': '确认退出'})
+
+    def test_quit_dialog_buttons_as_final_property(self):
+        dist = self.root / 'dist'
+        dist.mkdir()
+        main = dist / 'main.js'
+        main.write_text("module.exports = {buttons: ['Cancel', 'Quit']};", encoding='utf-8')
+        install.patch_quit_dialog(str(self.root))
+        subprocess.run(['node', '--check', str(main)], capture_output=True, check=True)
 
     def test_failed_sidecar_or_archive_switch_rolls_back(self):
         newer = make_archive(self.root / 'new', 'v2')
@@ -279,6 +307,25 @@ class InstallTests(unittest.TestCase):
                 install._replace_archive(str(newer), str(self.archive))
         self.assertEqual(before, self.archive.read_bytes())
         self.assertEqual(asar.read_file(self.archive, 'dist/native/helper.bin'), b'native-v1')
+
+    def test_interruption_after_each_sidecar_rename_restores_both_parts(self):
+        newer = make_archive(self.root / 'new', 'v2')
+        before = self.archive.read_bytes()
+        real_replace = os.replace
+        for step in ('save_old', 'install_new'):
+            def interrupt_after_replace(src, dst):
+                real_replace(src, dst)
+                if ((step == 'save_old' and Path(dst).name == 'previous.unpacked') or
+                        (step == 'install_new' and Path(src).name == 'app.asar.unpacked'
+                         and str(dst) == str(self.archive) + '.unpacked')):
+                    raise KeyboardInterrupt()
+            with self.subTest(step=step):
+                with patch.object(install.os, 'replace', side_effect=interrupt_after_replace):
+                    with self.assertRaises(KeyboardInterrupt):
+                        install._replace_archive(str(newer), str(self.archive))
+                self.assertEqual(before, self.archive.read_bytes())
+                self.assertEqual(asar.read_file(self.archive, 'dist/native/helper.bin'), b'native-v1')
+                self.assertEqual(list(self.archive.parent.glob('.agzh_stage_*')), [])
 
     def test_rollback_failure_keeps_recovery_files(self):
         newer = make_archive(self.root / 'new', 'v2')

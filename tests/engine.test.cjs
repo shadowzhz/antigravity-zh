@@ -10,11 +10,11 @@ const injection = execFileSync(process.env.PYTHON || (process.platform === 'win3
   { cwd: path.join(__dirname, '..'), encoding: 'utf8', maxBuffer: 4 * 1024 * 1024,
     env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
 const source = injection.replace(/\}\)\(\);\s*$/, `
-  globalThis.api = { translateString, translateNode, shouldSkipNode, loadExternalDict, startObserver,
+  globalThis.api = { translateString, translateNode, loadExternalDict, startObserver,
     get dictionary() { return dictionary; } };
 })();`);
 
-function harness(initial = null, sandboxed = false) {
+function harness(initial = null, sandboxed = false, prefix = '') {
   let external = initial;
   let watchCallback;
   let watchedPath;
@@ -66,9 +66,9 @@ function harness(initial = null, sandboxed = false) {
       return require(name);
     },
   });
-  vm.runInContext(source, context);
+  vm.runInContext(prefix + '\n\n' + source, context);
   return {
-    ...context.api, body, Element, observers, timers,
+    ...context.api, body, Element, observers, timers, original: context.original,
     text(value, parent = body) { return parent.append({ nodeType: 3, nodeValue: value, getRootNode() { return this.parentElement.getRootNode(); } }); },
     setExternal(value) { external = value; context.api.loadExternalDict(); },
     fileEvent(value, kind = 'change') { external = value; watchCallback(kind, 'zh-CN.json'); },
@@ -86,6 +86,61 @@ test('generated injection compiles and uses calibrated JSON when fs is unavailab
   }
   assert.equal(h.translateString('toString'), 'toString');
   assert.equal(h.translateString('hasOwnProperty'), 'hasOwnProperty');
+});
+
+test('injection is isolated from semicolon-free preload expressions', () => {
+  for (const prefix of ['globalThis.original = 1', 'globalThis.original = (() => 1)()']) {
+    const h = harness(null, true, prefix);
+    assert.equal(h.original, 1);
+    assert.equal(h.translateString('Settings'), bundle.Settings);
+  }
+});
+
+test('thinking triggers translate on full traversal and reload while prose stays original', () => {
+  const h = harness();
+  const container = h.body.append(new h.Element('DIV', { 'data-testid': 'thinking-collapsible', title: 'Settings' }));
+  const wrapper = container.append(new h.Element());
+  const prose = h.text('Settings', wrapper);
+  const labels = [];
+  for (const id of ['thinking-collapsible-trigger', 'worked-for-collapsible', 'tool-group-collapsible']) {
+    const trigger = wrapper.append(new h.Element('BUTTON', { 'data-testid': id, title: 'Settings' }));
+    const label = h.text('Thinking for 3s', trigger.append(new h.Element('SPAN')));
+    labels.push({ trigger, label });
+  }
+  h.translateNode(h.body);
+  for (const { trigger, label } of labels) {
+    assert.equal(label.nodeValue, '已思考 3 秒');
+    assert.equal(trigger.getAttribute('title'), bundle.Settings);
+  }
+  h.setExternal({ 'Thinking for 3s': '新的状态', Settings: '新的设置' });
+  for (const { trigger, label } of labels) {
+    assert.equal(label.nodeValue, '新的状态');
+    assert.equal(trigger.getAttribute('title'), '新的设置');
+  }
+  assert.equal(prose.nodeValue, 'Settings');
+  assert.equal(container.getAttribute('title'), 'Settings');
+  h.setExternal({});
+  for (const { label } of labels) assert.equal(label.nodeValue, '已思考 3 秒');
+  const added = wrapper.append(new h.Element('BUTTON', { 'data-testid': 'thinking-collapsible-trigger' }));
+  const addedText = h.text('Thinking for 3s', added);
+  h.observers.find(o => o.root === h.body).callback([{ type: 'childList', addedNodes: [wrapper] }]);
+  assert.equal(addedText.nodeValue, '已思考 3 秒');
+  assert.equal(prose.nodeValue, 'Settings');
+});
+
+test('thinking traversal exceptions never bypass code, editable, or reply protection', () => {
+  for (const [tag, attrs] of [['CODE', {}], ['DIV', {contenteditable: 'true'}],
+      ['DIV', {'data-testid': 'planner-response-text'}]]) {
+    const h = harness();
+    const container = h.body.append(new h.Element('DIV', {'data-testid': 'thinking-collapsible'}));
+    const protectedNode = container.append(new h.Element(tag, attrs));
+    const trigger = protectedNode.append(new h.Element('SPAN', {'data-testid': 'thinking-collapsible-trigger'}));
+    const label = h.text('Thinking for 3s', trigger);
+    h.translateNode(h.body);
+    h.translateNode(label);
+    h.setExternal({'Thinking for 3s': '不应写入'});
+    assert.equal(label.nodeValue, 'Thinking for 3s');
+  }
 });
 
 test('hot reload updates existing text and translated attributes', () => {

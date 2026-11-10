@@ -272,7 +272,7 @@ def patch_quit_dialog(tmp):
         print("[*] main.js 已注入退出弹窗翻译，跳过")
         return
     replacements = [
-        ("buttons: ['Cancel', 'Quit']", "buttons: ['取消', '退出'], // AG_ZH_QUIT_DIALOG"),
+        ("buttons: ['Cancel', 'Quit']", "buttons: ['取消', '退出'] /* AG_ZH_QUIT_DIALOG */"),
         ("title: 'Confirm Quit'", "title: '确认退出'"),
         ("message: 'Are you sure you want to quit?'", "message: '您确定要退出吗？'"),
         ("detail: 'There may be agents or background tasks running.'",
@@ -404,8 +404,6 @@ def _replace_archive(source, destination, source_unpacked=None):
     live_unpacked = destination + ".unpacked"
     old_unpacked = os.path.join(stage, "previous.unpacked")
     old_archive = os.path.join(stage, "previous.asar")
-    saved_old = False
-    installed_new = False
     keep_stage = False
     try:
         shutil.copy2(source, staged_asar)
@@ -419,21 +417,22 @@ def _replace_archive(source, destination, source_unpacked=None):
         had_archive = os.path.exists(destination)
         if had_archive:
             shutil.copy2(destination, old_archive)
+        had_staged_unpacked = os.path.isdir(staged_unpacked)
         try:
             if os.path.lexists(live_unpacked):
                 if os.path.islink(live_unpacked) or not os.path.isdir(live_unpacked):
                     raise ValueError("unpacked 目标必须是普通目录: %s" % live_unpacked)
                 os.replace(live_unpacked, old_unpacked)
-                saved_old = True
-            if os.path.isdir(staged_unpacked):
+            if had_staged_unpacked:
                 os.replace(staged_unpacked, live_unpacked)
-                installed_new = True
             os.replace(staged_asar, destination)
         except BaseException:
             try:
-                if installed_new:
+                # Inspect completed renames: interruption can occur before a
+                # Python flag assignment following os.replace has executed.
+                if had_staged_unpacked and not os.path.lexists(staged_unpacked):
                     shutil.rmtree(live_unpacked)
-                if saved_old:
+                if os.path.lexists(old_unpacked):
                     os.replace(old_unpacked, live_unpacked)
                 if had_archive and not os.path.exists(staged_asar):
                     # Also cover an interruption immediately after the final
@@ -537,7 +536,7 @@ def cmd_restore(asar_path, resources_dir):
         print("[OK] 用户词典已保留，请重新启动 Antigravity。")
 
 
-def cmd_status(asar_path, resources_dir):
+def cmd_status(asar_path):
     print("asar 路径: %s" % asar_path)
     print("SHA256: %s" % sha256(asar_path))
     print("大小: %d bytes" % os.path.getsize(asar_path))
@@ -562,7 +561,7 @@ def main():
     if args.restore:
         cmd_restore(asar_path, resources_dir)
     elif args.status:
-        cmd_status(asar_path, resources_dir)
+        cmd_status(asar_path)
     else:
         cmd_install(asar_path, resources_dir)
 
