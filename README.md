@@ -61,6 +61,7 @@ python3 install.py --asar "/path/to/resources/app.asar"
 | **安装 / 更新** | `python3 install.py` | 注入最新汉化补丁（自动备份原版） |
 | **查看状态** | `python3 install.py --status` | 检查汉化标记、文件大小与 SHA256 校验信息 |
 | **一键还原** | `python3 install.py --restore` | 完整还原为官方原版，保留用户自定义词典 |
+| **修复权限** | `python3 install.py --repair-acl` | Windows：修复被破坏的 `app.asar` 文件权限（需管理员） |
 
 > *注：若安装时指定了自定义 `--asar` 路径，执行 `--status` 或 `--restore` 时需传入相同的 `--asar` 参数。*
 
@@ -130,6 +131,22 @@ python3 install.py
 ```bash
 python3 install.py --asar "/your/custom/path/resources/app.asar"
 ```
+</details>
+
+<details>
+<summary><b>Q: 启动后只剩下 Electron 欢迎页（提示 <code>Antigravity.exe path-to-app</code>）？</b></summary>
+
+这说明 `app.asar` 的读取权限被破坏了：Electron 读不到应用包，就会退回内置的默认程序，于是只显示那个“Electron”欢迎窗口。
+
+原因是旧版安装器把暂存文件放进 `tempfile.mkdtemp()` 目录，该目录自带受保护 DACL（仅 `SYSTEM`、`Administrators`、所有者可访问）。若安装器本身是以**管理员身份**运行的，新文件的属主会变成 `Administrators`，普通权限启动的客户端就彻底读不到 `app.asar`；此时执行 `--restore` 也没用，因为还原同样走这条暂存路径。
+
+以**管理员身份**打开终端执行一次权限修复即可（无需重装客户端）：
+
+```bash
+python install.py --repair-acl
+```
+
+`app.asar` 恢复可读后客户端即可正常启动；随后在**普通权限**的终端重新执行 `python install.py` 注入汉化。新版安装器已在暂存目录创建后、以及替换完成后自动重置权限并校验可读性，不会再出现该问题。
 </details>
 
 <details>

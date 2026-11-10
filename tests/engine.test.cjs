@@ -263,3 +263,67 @@ test('dynamic parameters and lowercase identifiers preserve intended behavior', 
   assert.equal(h.translateString('scheduled tasks run as AuditModel'), '所有计划任务均以 AuditModel 模型运行。');
   assert.ok(h.translateString("Yes, allow 'echo $HOME' this time").includes('echo $HOME'));
 });
+
+test('git worktree and branch modal UI elements and attributes translate without exclusion', () => {
+  const h = harness();
+
+  // 1. 直接字符串与动态规则翻译验证
+  assert.equal(h.translateString('Work in a New Worktree'), '在新的 Git 工作树中工作');
+  assert.equal(h.translateString('Keeps your checkout untouched'), '保持当前检出目录不变');
+  assert.equal(h.translateString('Keeps your checkout untouched.'), '保持当前检出目录不变。');
+  assert.equal(h.translateString('Worktree Branches'), '工作树分支');
+  assert.equal(h.translateString('Worktree branch'), '工作树分支');
+  assert.equal(h.translateString('Base branch for new worktree'), '新工作树的基准分支');
+  assert.equal(h.translateString('Select branch'), '选择分支');
+  assert.equal(h.translateString('Remote branch'), '远程分支');
+  assert.equal(h.translateString('Branch, current: main'), '分支，当前：main');
+  assert.equal(h.translateString('Branch, current: Select branch'), '分支，当前：选择分支');
+  assert.equal(h.translateString('Branch, current: main, new worktree'), '分支，当前：main，新工作树');
+
+  // 2. DOM 树及属性翻译验证（Worktree / 分支选择器弹窗结构）
+  const modal = h.body.append(new h.Element('DIV', { class: 'select-container modal-dialog' }));
+  modal.className = 'select-container modal-dialog';
+
+  // 标题
+  const title = modal.append(new h.Element('H2', { title: 'Worktree Branches' }));
+  const titleText = h.text('Worktree Branches', title);
+
+  // 模式选择按钮及其 aria-label 属性
+  const pillBtn = modal.append(new h.Element('BUTTON', {
+    'aria-label': 'Base branch for new worktree',
+    title: 'Worktree branch',
+    'data-testid': 'branch-pill-trigger'
+  }));
+  const pillLabel = pillBtn.append(new h.Element('SPAN'));
+  pillLabel.className = 'select-none truncate max-w-40';
+  const pillText = h.text('Select branch', pillLabel);
+
+  // Worktree 复选框选项
+  const optionWrapper = modal.append(new h.Element('SPAN'));
+  optionWrapper.className = 'flex flex-col min-w-0';
+  const optTitle = optionWrapper.append(new h.Element('SPAN'));
+  optTitle.className = 'truncate';
+  const optTitleText = h.text('Work in a New Worktree', optTitle);
+  const optDesc = optionWrapper.append(new h.Element('SPAN'));
+  optDesc.className = 'text-xs text-muted-foreground truncate';
+  const optDescText = h.text('Keeps your checkout untouched', optDesc);
+
+  // Diff 视图行（确认 select-contain 保护代码行不受翻译影响）
+  const diffLine = h.body.append(new h.Element('DIV'));
+  diffLine.className = 'code-line group flex flex-nowrap min-h-[1.2rem] select-contain';
+  const diffCodeText = h.text('Select branch', diffLine);
+
+  h.translateNode(h.body);
+
+  // 验证弹窗各区域正常翻译，未被误伤
+  assert.equal(titleText.nodeValue, '工作树分支');
+  assert.equal(title.getAttribute('title'), '工作树分支');
+  assert.equal(pillBtn.getAttribute('aria-label'), '新工作树的基准分支');
+  assert.equal(pillBtn.getAttribute('title'), '工作树分支');
+  assert.equal(pillText.nodeValue, '选择分支');
+  assert.equal(optTitleText.nodeValue, '在新的 Git 工作树中工作');
+  assert.equal(optDescText.nodeValue, '保持当前检出目录不变');
+
+  // 验证 diff 保护区域不受误翻
+  assert.equal(diffCodeText.nodeValue, 'Select branch');
+});

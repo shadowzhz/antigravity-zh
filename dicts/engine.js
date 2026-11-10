@@ -230,6 +230,19 @@
     [/^Send feedback as (.+)$/i, '以 $1 身份发送反馈'],
     [/^Models within this group:\s*(.*)$/i, '该分组包含的模型：$1'],
     [/^Select model,\s*current:\s*(.+)$/i, '选择模型，当前：$1'],
+    [/^Branch,\s*current:\s*(.+)$/i, function (m, cur) {
+      var parts = cur.split(', ');
+      var translatedParts = parts.map(function (p) {
+        var trimmed = p.trim();
+        var val = dictionary[trimmed];
+        if (!val) {
+          var lowerKey = lowerIndex[trimmed.toLowerCase()];
+          if (lowerKey !== undefined) val = dictionary[lowerKey];
+        }
+        return val || trimmed;
+      });
+      return '分支，当前：' + translatedParts.join('，');
+    }],
     [/^(\d+) models selected$/i, '已选择 $1 个模型'],
     [/^Auth code for (.+)$/i, '$1 的授权码'],
     [/^The (.+) MCP server requires configuration parameters before it can be started\.?$/i, '$1 MCP 服务器需要先配置参数才能启动。'],
@@ -661,7 +674,7 @@
         const lowerClass = cur.className.toLowerCase();
         if (
           lowerClass.includes('code-line') ||
-          lowerClass.includes('select-contain') ||
+          /(?:^|[\s_-])select-contain(?:$|[\s_-])/i.test(cur.className) ||
           codeClassPattern.test(cur.className)
         ) {
           return 'skip';

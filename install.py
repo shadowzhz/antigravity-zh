@@ -109,9 +109,10 @@ def check_app_running():
                                capture_output=True)
             return r.returncode == 0
         elif sys.platform == "win32":
+            # tasklist 输出使用控制台代码页，按字节读取后只匹配 ASCII 进程名
             r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq Antigravity.exe"],
-                               capture_output=True, text=True)
-            return "antigravity.exe" in r.stdout.lower()
+                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            return b"antigravity.exe" in r.stdout.lower()
         elif sys.platform.startswith("linux"):
             r = subprocess.run(["pgrep", "-x", "[Aa]ntigravity"], capture_output=True)
             return r.returncode == 0
@@ -388,6 +389,50 @@ def _archive_lock(asar_path):
         os.remove(lock)
 
 
+def _is_accessible(path):
+    """Whether the current user can actually read this file or list this dir."""
+    try:
+        if os.path.isdir(path):
+            os.listdir(path)
+        else:
+            with open(path, "rb") as probe:
+                probe.read(1)
+        return True
+    except OSError:
+        return False
+
+
+def _reset_windows_acl(path, recursive=False):
+    """Restore inherited permissions on Windows.
+
+    ``tempfile.mkdtemp()`` creates 0o700 staging directories carrying a
+    protected DACL that only grants SYSTEM, Administrators and the owner.
+    Files copied there inherit that DACL and keep it across ``os.replace``,
+    so swapping ``app.asar`` into place can leave an archive that an
+    unelevated client cannot read. Electron then fails to mount the archive
+    and falls back to its built-in default app (the plain "Electron"
+    welcome page). Resetting to inherited permissions avoids that; when the
+    installer itself ran elevated the owner is Administrators, so the
+    elevated process can still reset what it created.
+
+    The exit status is not trustworthy here: ``/C`` makes icacls report
+    success even when it could not touch a protected entry, so the result is
+    verified by trying to read the path afterwards.
+    """
+    if sys.platform != "win32" or not os.path.lexists(path):
+        return True
+    args = ["icacls", path, "/reset"]
+    if recursive:
+        args += ["/T", "/C", "/Q"]
+    try:
+        # icacls writes in the console code page on Chinese Windows, so keep the
+        # output as bytes and only look at the exit status.
+        subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        return False
+    return _is_accessible(path)
+
+
 def _replace_archive(source, destination, source_unpacked=None):
     """Stage the complete pair on the target filesystem; roll back all switches.
 
@@ -399,6 +444,9 @@ def _replace_archive(source, destination, source_unpacked=None):
     entries = asar.validate_archive(source, source_unpacked)
     parent = os.path.dirname(os.path.abspath(destination))
     stage = tempfile.mkdtemp(prefix=".agzh_stage_", dir=parent)
+    # Drop the protected mkdtemp DACL before any file is staged inside it, so
+    # the copies inherit the normal permissions of the install directory.
+    _reset_windows_acl(stage)
     staged_asar = os.path.join(stage, "app.asar")
     staged_unpacked = staged_asar + ".unpacked"
     live_unpacked = destination + ".unpacked"
@@ -426,6 +474,8 @@ def _replace_archive(source, destination, source_unpacked=None):
             if had_staged_unpacked:
                 os.replace(staged_unpacked, live_unpacked)
             os.replace(staged_asar, destination)
+            if not _reset_windows_acl(destination) or not _reset_windows_acl(live_unpacked, recursive=True):
+                print("[!] 无法重置 %s 的文件权限，客户端可能读不到 app.asar" % destination)
         except BaseException:
             try:
                 # Inspect completed renames: interruption can occur before a
@@ -438,6 +488,7 @@ def _replace_archive(source, destination, source_unpacked=None):
                     # Also cover an interruption immediately after the final
                     # rename, when the new archive may already be visible.
                     os.replace(old_archive, destination)
+                    _reset_windows_acl(destination)
                 elif not had_archive and not os.path.exists(staged_asar) and os.path.exists(destination):
                     os.remove(destination)
             except BaseException as rollback_error:
@@ -547,11 +598,49 @@ def cmd_status(asar_path):
     print("汉化: %s" % ("已注入" if _is_patched(content) else "未注入（原版）"))
 
 
+def cmd_repair_acl(asar_path):
+    """修复历史版本遗留的文件权限问题（Windows 需管理员权限）。
+
+    旧版安装器把暂存文件放在 ``tempfile.mkdtemp()`` 目录里，受保护 DACL 会
+    随 ``os.replace`` 一起落到安装目录。若安装器本身是以管理员身份运行的，
+    ``app.asar`` 的所有者会变成 Administrators，普通权限的客户端就完全读不
+    到它 —— 现象是启动后只剩 Electron 默认欢迎页。
+    """
+    if sys.platform != "win32":
+        print("[*] 仅 Windows 需要修复文件权限，当前平台跳过")
+        return
+    targets = [
+        (asar_path, False),
+        (asar_path + ".bak", False),
+        (asar_path + ".unpacked", True),
+        (asar_path + ".bak.unpacked", True),
+    ]
+    failed = []
+    for path, recursive in targets:
+        if not os.path.lexists(path):
+            continue
+        if _reset_windows_acl(path, recursive=recursive):
+            print("[OK] 权限已重置: %s" % path)
+        else:
+            print("[!] 权限重置失败: %s" % path)
+            failed.append(path)
+    try:
+        with open(asar_path, "rb") as probe:
+            probe.read(16)
+    except OSError as error:
+        sys.exit("[ERR] 仍无法读取 app.asar: %s\n"
+                 "      请以管理员身份重新运行本命令（右键终端 -> 以管理员身份运行）" % error)
+    if failed:
+        sys.exit("[ERR] 以下路径仍不可访问，请在管理员终端中重试:\n      " + "\n      ".join(failed))
+    print("[DONE] app.asar 已可正常读取，现在可以启动客户端或重新执行安装")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Antigravity 中文汉化安装器（零依赖）")
     actions = ap.add_mutually_exclusive_group()
     actions.add_argument("--restore", action="store_true", help="还原官方原版")
     actions.add_argument("--status", action="store_true", help="查看汉化状态")
+    actions.add_argument("--repair-acl", action="store_true", help="修复被破坏的文件权限（Windows 管理员）")
     ap.add_argument("--asar", default=None, help="手动指定 app.asar 路径")
     args = ap.parse_args()
 
@@ -562,6 +651,8 @@ def main():
         cmd_restore(asar_path, resources_dir)
     elif args.status:
         cmd_status(asar_path)
+    elif args.repair_acl:
+        cmd_repair_acl(asar_path)
     else:
         cmd_install(asar_path, resources_dir)
 
