@@ -267,6 +267,31 @@ class InstallTests(unittest.TestCase):
         install.patch_quit_dialog(str(self.root))
         subprocess.run(['node', '--check', str(main)], capture_output=True, check=True)
 
+    def test_patch_loading_overlay_handles_text_and_svg_versions(self):
+        dist = self.root / 'dist'
+        dist.mkdir(exist_ok=True)
+        overlay = dist / 'loadingOverlay.js'
+
+        # 1. 旧版文本画面注入
+        overlay.write_text('<div class="text">Loading Antigravity</div>', encoding='utf-8')
+        install.patch_loading_overlay(str(self.root))
+        self.assertIn('正在加载 Antigravity', overlay.read_text(encoding='utf-8'))
+        self.assertIn('注入 加载画面翻译', self.output.getvalue())
+
+        # 2. 已注入则幂等跳过
+        self.output.truncate(0)
+        self.output.seek(0)
+        install.patch_loading_overlay(str(self.root))
+        self.assertIn('已注入加载画面翻译，跳过', self.output.getvalue())
+
+        # 3. 新版纯 SVG 动画无需汉化，友好跳过不报警告
+        self.output.truncate(0)
+        self.output.seek(0)
+        overlay.write_text('<svg class="logo"></svg>', encoding='utf-8')
+        install.patch_loading_overlay(str(self.root))
+        self.assertIn('纯图形动画', self.output.getvalue())
+        self.assertNotIn('[!]', self.output.getvalue())
+
     def test_failed_sidecar_or_archive_switch_rolls_back(self):
         newer = make_archive(self.root / 'new', 'v2')
         original = self.archive.read_bytes()

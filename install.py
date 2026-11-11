@@ -325,6 +325,9 @@ def patch_loading_overlay(tmp):
         with open(overlay_path, "w", encoding="utf-8") as f:
             f.write(content)
         print("[OK] 注入 加载画面翻译: loadingOverlay.js")
+    elif "<svg" in content and '<div class="text">' not in content:
+        # 新版官方加载画面为纯 SVG 呼吸动画，无文字需要汉化
+        print("[*] loadingOverlay.js 为纯图形动画（无英文字符串），跳过")
     else:
         print("[!] loadingOverlay.js 钩子未匹配，跳过")
 
