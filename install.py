@@ -9,6 +9,7 @@ Antigravity 中文汉化安装器（纯 Python 零外部依赖）
 
 用法：
     python3 install.py              # 安装汉化
+    python3 install.py --metrics    # 安装汉化与实时指标胶囊
     python3 install.py --restore    # 还原官方原版
     python3 install.py --status     # 查看当前状态
     python3 install.py --asar PATH  # 指定 app.asar 路径（非默认安装时）
@@ -33,6 +34,8 @@ import asar  # noqa: E402
 
 TAG = "Antigravity Chinese Translation Injection v3-full"
 DICT_PLACEHOLDER = "__DICT_ITEMS__"
+METRICS_ENABLED_PLACEHOLDER = "__METRICS_ENABLED__"
+METRICS_PLACEHOLDER = "__METRICS_RUNTIME__"
 
 
 def _load_engine_template():
@@ -49,14 +52,26 @@ ENGINE_START_MARKER = "// AGZH ENGINE START"
 LEGACY_ENGINE_START_MARKER = "(function() {\n  const dictionary = {"
 
 
-def build_injection(dictionary):
-    """由全量字典生成注入 JS（引擎模板 + 字典项）。"""
+def build_injection(dictionary, metrics=False):
+    """生成汉化引擎及可选的独立指标胶囊。"""
     payload = json.dumps(json.dumps(dictionary, ensure_ascii=False), ensure_ascii=True)
     dict_block = "// ===== %s =====\n  const bundledDictionary = JSON.parse(%s);" % (TAG, payload)
     template = _load_engine_template()
     if template.count(DICT_PLACEHOLDER) != 1:
         raise ValueError("引擎模板必须包含一个词典占位符")
-    return template.replace(DICT_PLACEHOLDER, dict_block)
+    if template.count(METRICS_ENABLED_PLACEHOLDER) != 1:
+        raise ValueError("引擎模板必须包含一个指标开关占位符")
+    if template.count(METRICS_PLACEHOLDER) != 1:
+        raise ValueError("引擎模板必须包含一个指标运行时占位符")
+    metrics_runtime = ""
+    if metrics:
+        with open(os.path.join(HERE, "dicts", "metrics.css"), encoding="utf-8") as source:
+            css = json.dumps(source.read(), ensure_ascii=True)
+        with open(os.path.join(HERE, "dicts", "metrics.js"), encoding="utf-8") as source:
+            metrics_runtime = "  const metricsCss = %s;\n%s" % (css, source.read())
+    content = template.replace(DICT_PLACEHOLDER, dict_block)
+    content = content.replace(METRICS_ENABLED_PLACEHOLDER, "true" if metrics else "false")
+    return content.replace(METRICS_PLACEHOLDER, metrics_runtime)
 
 
 # ---------------------------------------------------------------- 平台与路径
@@ -159,11 +174,11 @@ def load_dictionary():
     return d
 
 
-def patch_file(path, dictionary):
-    """向 preload/wizardPreload 注入汉化。
+def patch_file(path, dictionary, metrics=False):
+    """向 preload/wizardPreload 注入汉化与可选指标胶囊。
 
     分两种情况：
-    A. 原版（无引擎）-> 直接追加完整引擎（引擎模板 + 全量字典），无需锚点；
+    A. 原版（无引擎）-> 直接追加完整引擎（含字典与可选指标），无需锚点；
     B. 已有引擎 -> 从第一个引擎起点到文件尾整体重建（历史上多次追加产生的
        重复引擎块一并清除，避免旧引擎先翻译导致新词典永不生效）。
        引擎注入始终追加在文件尾部，因此第一个起点之后全是旧引擎内容。
@@ -179,18 +194,18 @@ def patch_file(path, dictionary):
         n_old = content.count(ENGINE_START_MARKER) + content.count(LEGACY_ENGINE_START_MARKER)
         if n_old > 1:
             print("[*] %s 检测到 %d 个重复引擎块，合并重建" % (os.path.basename(path), n_old))
-        new_engine = build_injection(dictionary)
-        if content[start:] == new_engine + "\n":
-            print("[*] %s 引擎与词典均无变化，跳过" % os.path.basename(path))
+        new_engine = build_injection(dictionary, metrics=metrics)
+        if content[start:] == new_engine + chr(10):
+            print("[*] %s 引擎、词典与指标配置均无变化，跳过" % os.path.basename(path))
             return
-        content = content[:start] + new_engine + "\n"
+        content = content[:start] + new_engine + chr(10)
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
-        print("[OK] %s 引擎与词典更新完成" % os.path.basename(path))
+        print("[OK] %s 引擎与配置更新完成" % os.path.basename(path))
         return
 
-    # 情况 A：官方原版，追加完整引擎（含全量字典）
-    content = content.rstrip() + "\n\n" + build_injection(dictionary) + "\n"
+    # 情况 A：官方原版，追加完整引擎
+    content = content.rstrip() + chr(10) + chr(10) + build_injection(dictionary, metrics=metrics) + chr(10)
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
     print("[OK] %s 注入完成" % os.path.basename(path))
@@ -312,6 +327,33 @@ def patch_loading_overlay(tmp):
         print("[OK] 注入 加载画面翻译: loadingOverlay.js")
     else:
         print("[!] loadingOverlay.js 钩子未匹配，跳过")
+
+
+def patch_metrics(tmp, enabled):
+    """安装原生 SQLite 指标读取器；关闭指标时移除入口和模块。"""
+    main_path = os.path.join(tmp, "dist", "main.js")
+    module_path = os.path.join(tmp, "dist", "agzh-metrics.cjs")
+    start_marker = "\n// AGZH METRICS START\n"
+    end_marker = "// AGZH METRICS END\n"
+    if not os.path.exists(main_path):
+        if enabled:
+            raise FileNotFoundError("找不到指标注入入口: %s" % main_path)
+        return
+    with open(main_path, encoding="utf-8") as source:
+        content = source.read()
+    start = content.find(start_marker)
+    if start != -1:
+        end = content.find(end_marker, start)
+        if end == -1:
+            raise ValueError("主进程指标注入标记不完整")
+        content = content[:start] + content[end + len(end_marker):]
+    if enabled:
+        shutil.copyfile(os.path.join(HERE, "dicts", "metrics.cjs"), module_path)
+        content += start_marker + ";require('./agzh-metrics.cjs').register();\n" + end_marker
+    elif os.path.exists(module_path):
+        os.remove(module_path)
+    with open(main_path, "w", encoding="utf-8") as target:
+        target.write(content)
 
 
 MENU_TRANSLATION_CODE = r"""
@@ -536,7 +578,7 @@ def _ensure_external_dictionary():
         print("[*] 保留已有用户词典: %s" % ext_dict)
 
 
-def cmd_install(asar_path, resources_dir):
+def cmd_install(asar_path, resources_dir, metrics=False):
     with _archive_lock(asar_path):
         _require_app_stopped()
         dictionary = load_dictionary()
@@ -555,14 +597,17 @@ def cmd_install(asar_path, resources_dir):
                 _replace_archive(asar_path, asar_path + ".bak")
                 print("[OK] 已成套备份当前原版 ASAR 与 unpacked 文件")
             print("[*] 字典词条: %d" % len(dictionary))
-            patch_file(os.path.join(extracted, "dist", "preload.js"), dictionary)
+            if metrics:
+                print("[*] 实时指标胶囊: 已启用")
+            patch_file(os.path.join(extracted, "dist", "preload.js"), dictionary, metrics=metrics)
             wizard = os.path.join(extracted, "dist", "ideInstall", "wizardPreload.js")
             if os.path.exists(wizard):
-                patch_file(wizard, dictionary)
+                patch_file(wizard, dictionary, metrics=metrics)
             patch_native_menu(extracted)
             patch_tray(extracted)
             patch_quit_dialog(extracted)
             patch_loading_overlay(extracted)
+            patch_metrics(extracted, metrics)
             new_asar = os.path.join(tmp, "app.asar")
             print("[*] 重新打包（保留原始 unpacked 清单和执行标记）...")
             asar.pack(extracted, new_asar, metadata=metadata)
@@ -572,7 +617,8 @@ def cmd_install(asar_path, resources_dir):
             _replace_archive(new_asar, asar_path)
         if sys.platform == "darwin":
             codesign_macos(os.path.dirname(os.path.dirname(resources_dir)))
-        print("[DONE] 汉化注入完成（SHA256: %s），请启动 Antigravity。" % sha256(asar_path))
+        suffix = "（含实时指标胶囊）" if metrics else ""
+        print("[DONE] 汉化%s注入完成（SHA256: %s），请启动 Antigravity。" % (suffix, sha256(asar_path)))
 
 
 def cmd_restore(asar_path, resources_dir):
@@ -636,12 +682,13 @@ def cmd_repair_acl(asar_path):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Antigravity 中文汉化安装器（零依赖）")
+    ap = argparse.ArgumentParser(description="Antigravity 中文汉化与实时指标安装器（零外部依赖）")
     actions = ap.add_mutually_exclusive_group()
     actions.add_argument("--restore", action="store_true", help="还原官方原版")
     actions.add_argument("--status", action="store_true", help="查看汉化状态")
     actions.add_argument("--repair-acl", action="store_true", help="修复被破坏的文件权限（Windows 管理员）")
     ap.add_argument("--asar", default=None, help="手动指定 app.asar 路径")
+    ap.add_argument("--metrics", action="store_true", help="启用实时会话指标胶囊，不改变原生主题或字体")
     args = ap.parse_args()
 
     asar_path, resources_dir = detect_paths(args.asar)
@@ -654,7 +701,7 @@ def main():
     elif args.repair_acl:
         cmd_repair_acl(asar_path)
     else:
-        cmd_install(asar_path, resources_dir)
+        cmd_install(asar_path, resources_dir, metrics=args.metrics)
 
 
 if __name__ == "__main__":

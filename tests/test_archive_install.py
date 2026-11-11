@@ -23,6 +23,7 @@ def make_archive(root, version='v1'):
     resources.mkdir(parents=True)
     files = {
         'dist/preload.js': 'globalThis.fixture = %s;\n' % json.dumps(version),
+        'dist/main.js': 'globalThis.fixtureMain = %s;\n' % json.dumps(version),
         'dist/ideInstall/wizardPreload.js': 'globalThis.wizard = true;\n',
         'dist/native/helper.bin': 'native-' + version,
         'node_modules/chrome-devtools-mcp/helper': '#!/bin/sh\necho ' + version,
@@ -358,6 +359,19 @@ class InstallTests(unittest.TestCase):
     def test_cli_actions_are_mutually_exclusive(self):
         result = subprocess.run([sys.executable, 'install.py', '--status', '--restore'], capture_output=True)
         self.assertEqual(result.returncode, 2)
+
+
+    def test_metrics_reinstall_disable_and_restore_preserve_main_process(self):
+        original_archive = self.archive.read_bytes()
+        original_main = asar.read_file(self.archive, 'dist/main.js')
+        install.cmd_install(str(self.archive), str(self.archive.parent), metrics=True)
+        with_metrics = self.archive.read_bytes()
+        install.cmd_install(str(self.archive), str(self.archive.parent), metrics=True)
+        self.assertEqual(with_metrics, self.archive.read_bytes())
+        self.run_install()
+        self.assertEqual(original_main, asar.read_file(self.archive, 'dist/main.js'))
+        self.run_restore()
+        self.assertEqual(original_archive, self.archive.read_bytes())
 
 
 if __name__ == '__main__':

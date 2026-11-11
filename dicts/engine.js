@@ -1,6 +1,8 @@
 // AGZH ENGINE START
 ;(function() {
   __DICT_ITEMS__
+  const metricsEnabled = __METRICS_ENABLED__;
+  __METRICS_RUNTIME__
 
   // The JSON bundle is the only built-in dictionary. User overrides are a
   // replaceable snapshot; removing a key restores its bundled value.
@@ -534,6 +536,7 @@
     let allowThinkingTrigger = false;
     let skipContent = false;
     while (cur) {
+      if (cur.id === 'ag-live-metrics-pill' || cur.id === 'ag-live-metrics-tooltip') return 'skip';
       // 4a0. 祖先标签若为代码或脚本标签（PRE, CODE, KBD, SAMP 等），绝对跳过！
       if (cur.tagName && skipTags.includes(cur.tagName)) {
         return 'skip';
@@ -742,6 +745,7 @@
     }
   }
 
+
   const observerConfig = {
     childList: true, subtree: true, characterData: true, attributes: true,
     attributeFilter: translatedAttributes
@@ -784,6 +788,9 @@
 
   function startObserver() {
     if (!document.body) return;
+    if (metricsEnabled) {
+      initMetrics();
+    }
     try { translateNode(document.body); }
     catch (error) { console.error('Translation error:', error); }
     observeRoot(document.body);

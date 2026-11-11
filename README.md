@@ -1,4 +1,4 @@
-# Antigravity 中文汉化增强版 🌏
+# Antigravity 中文汉化与实时指标
 
 <p align="center">
   <a href="https://github.com/shadowzhz/antigravity-zh/actions/workflows/tests.yml"><img src="https://github.com/shadowzhz/antigravity-zh/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
@@ -7,8 +7,8 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"></a>
 </p>
 
-> **专为 Google Antigravity 桌面客户端（Agent Manager）打造的高性能、无侵入式简体中文汉化补丁。**  
-> 纯 Python 标准库编写，**无需 Node.js / npm**。一键安装、即时热更、安全事务备份、无损还原。
+> **为 Google Antigravity 桌面客户端（Agent Manager）提供简体中文汉化和可选实时会话指标。**
+> 保留原生主题与字体。纯 Python 标准库安装，无需额外 Node.js / npm；支持词典热更新、安全备份和完整还原。
 
 ---
 
@@ -19,7 +19,8 @@
   - **代码与终端隔离**：自动跳过 `<pre>`、`<code>`、终端模拟器（`.xterm`）、代码 Diff 视图及用户输入区域。
   - **全小写实体免伤**：首创孤立小写词保护机制，项目名（如 `project`）、目录名（如 `workspace`）、变量名及 Shell 命令保持英文原貌，杜绝误伤。
   - **AI 思考与指令保护**：模型思考链（Chain of Thought）、工具调用摘要及 `/` 快捷指令原生呈现。
-- 🌐 **深度本地化覆盖**：内置 **6,300+ 条** 高质量词条，全面汉化主界面、偏好设置、原生系统菜单、托盘及启动向导。
+- 📊 **实时会话指标胶囊（`--metrics`）**：显示生成速度、首字耗时、上下文参考水位及输出量；悬浮或键盘聚焦可查看缓存、思考/正文输出、本轮与会话累计统计。直接使用客户端内置 SQLite，无需单独安装 Node.js 或守护服务。
+- 🌐 **深度本地化覆盖**：内置 **6,500+ 条** 词条，覆盖 Knowledge Work 知识工作模式、主界面、偏好设置、原生系统菜单、托盘及启动向导；已在 Linux Antigravity **2.31.0** 验证汉化、外观设置与实时指标。
 - 🔄 **词典即时热重载**：支持用户自定义扩展词典，编辑保存即可即时生效，无需重启客户端。
 - 🔒 **安全事务与无损还原**：成套备份 `app.asar` 与 `unpacked` 资源，具备 SHA256 完整性校验、原子回滚机制与文件锁，随时一键还原官方原版。
 - 💻 **跨平台智能探测**：内置 Linux、macOS（集成 ad-hoc 自动重签名）与 Windows 的标准路径智能探测。
@@ -59,11 +60,24 @@ python3 install.py --asar "/path/to/resources/app.asar"
 | 操作 | 命令 | 说明 |
 | :--- | :--- | :--- |
 | **安装 / 更新** | `python3 install.py` | 注入最新汉化补丁（自动备份原版） |
+| **汉化 + 实时指标** | `python3 install.py --metrics` | 启用汉化与指标胶囊，不修改主题或字体 |
 | **查看状态** | `python3 install.py --status` | 检查汉化标记、文件大小与 SHA256 校验信息 |
 | **一键还原** | `python3 install.py --restore` | 完整还原为官方原版，保留用户自定义词典 |
 | **修复权限** | `python3 install.py --repair-acl` | Windows：修复被破坏的 `app.asar` 文件权限（需管理员） |
 
 > *注：若安装时指定了自定义 `--asar` 路径，执行 `--status` 或 `--restore` 时需传入相同的 `--asar` 参数。*
+
+### 实时指标胶囊
+
+旧版 `--theme` 和 `--install-fonts` 已移除。升级时运行 `python3 install.py --metrics` 即可替换旧主题引擎；已有字体和用户 `custom.css` 不会被删除，但不再由补丁安装或加载。
+
+- 需要客户端 Electron 内置 `node:sqlite`。安装器仍只需要 Python；若客户端过旧缺少该接口，胶囊会提示升级，不影响客户端启动。
+- 打开已有生成记录的会话后显示；首页、空会话或没有有效用量记录时隐藏。
+- 窗口可见时每 2.5 秒检查当前会话。数据来自已写入数据库的调用元数据，并非逐 Token 实时采样。
+- 仅只读访问 `~/.gemini/antigravity/conversations/<会话ID>.db`；Insiders 使用 `~/.gemini/antigravity-insiders/conversations/`。不修改会话数据库，不向外发送指标。
+- 鼠标悬浮或按 Tab 聚焦可看详情，Escape 关闭；空间不足时自动放到模型选择器下方。
+- **256k 是参考容量，不是自动识别的模型上限或压缩阈值**。本轮统计沿用上游的规划步数与有效调用尾部匹配方式，缺失用量记录时不能保证逐步精确对应。
+- 重新执行不带 `--metrics` 的 `python3 install.py` 会移除指标模块、保留汉化；`--restore` 仍完整还原官方包。
 
 ---
 
@@ -103,9 +117,8 @@ python3 install.py --asar "/path/to/resources/app.asar"
 antigravity-zh/
 ├── install.py         # 汉化安装器主入口（路径自发现、事务备份、无损还原与签名维护）
 ├── asar.py            # 纯 Python 实现的轻量级 ASAR 打包/解包与流式补丁引擎
-├── dicts/             # 内置词库数据（6,300+ 条高质量翻译字典）
-├── SKILL.md           # Antigravity Agent Skill 规范集成描述
-├── tests/             # 自动化测试套件（ASAR 读写、事务回滚与 JS 翻译引擎测试）
+├── dicts/             # 翻译引擎、词库及独立指标采集/显示模块
+├── tests/             # ASAR 读写、事务回滚、翻译与指标测试
 └── LICENSE            # MIT 开源许可证
 ```
 
@@ -174,8 +187,8 @@ python3 -m py_compile install.py asar.py
 # 2. 运行 Python 事务安全与 ASAR 回归测试
 python3 -m unittest discover -s tests -v
 
-# 3. 运行 JavaScript 翻译引擎测试（需 Node.js 22+）
-node --test tests/engine.test.cjs
+# 3. 运行翻译与指标测试（开发环境需 Node.js 22.13+）
+node --test tests/engine.test.cjs tests/metrics-backend.test.cjs tests/metrics-ui.test.cjs
 ```
 
 ---
@@ -184,3 +197,4 @@ node --test tests/engine.test.cjs
 
 - 本项目采用 [MIT License](LICENSE) 协议开源。
 - 基于 [zhonghugo/antigravity-zh](https://github.com/zhonghugo/antigravity-zh) 继续开发与维护，增强了匹配引擎、防误翻隔离与事务安全机制。感谢原作者与社区贡献者的付出！
+- 指标方案参考 [Anarcadia/chuanban-antigravity-theme-patch](https://github.com/Anarcadia/chuanban-antigravity-theme-patch)，本项目仅保留指标功能并接入 Electron 主进程 IPC，不运行上游 CDP 守护服务。

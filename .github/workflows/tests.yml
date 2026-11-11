@@ -30,8 +30,8 @@ jobs:
           node-version: '22'
       - name: Python regression tests
         run: python -m unittest discover -s tests -v
-      - name: Translation regression tests
-        run: node --test tests/engine.test.cjs
+      - name: Translation and live metrics regression tests
+        run: node --test tests/engine.test.cjs tests/metrics-backend.test.cjs tests/metrics-ui.test.cjs
       - name: Syntax and whitespace
         run: |
           python -m py_compile install.py asar.py
