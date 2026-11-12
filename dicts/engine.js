@@ -6,12 +6,18 @@
 
   // The JSON bundle is the only built-in dictionary. User overrides are a
   // replaceable snapshot; removing a key restores its bundled value.
+  const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
   const baseDictionary = Object.freeze(Object.assign(Object.create(null), bundledDictionary));
-  let dictionary, lowerIndex, longTextRegex, shortTextRegex;
+  let dictionary, userOverrides, lowerIndex, longTextRegex, shortTextRegex;
   function rebuildDict(overrides) {
-    const next = Object.assign(Object.create(null), baseDictionary, overrides);
+    const nextUser = Object.assign(Object.create(null), overrides);
+    const next = Object.assign(Object.create(null), baseDictionary, nextUser);
     const index = Object.create(null);
-    for (const key of Object.keys(next)) {
+    // Index user overrides before bundled entries so case-insensitive lookups prefer user values.
+    for (const key of Object.keys(nextUser)) {
+      if (!(key.toLowerCase() in index)) index[key.toLowerCase()] = key;
+    }
+    for (const key of Object.keys(baseDictionary)) {
       if (!(key.toLowerCase() in index)) index[key.toLowerCase()] = key;
     }
     const keys = Object.keys(next).sort((a, b) => b.length - a.length);
@@ -19,6 +25,7 @@
     const shortRegex = compileDictionaryRegex(keys.filter(key => key.length > 3 || /^[a-zA-Z0-9]+$/.test(key)));
     // Publish only after the complete snapshot has validated and compiled.
     dictionary = next;
+    userOverrides = nextUser;
     lowerIndex = index;
     longTextRegex = longRegex;
     shortTextRegex = shortRegex;
@@ -298,14 +305,17 @@
   ];
 
   const allowLowerTokens = new Set(['today', 'yesterday', 'now', 'am', 'pm', 'week', 'month', 'verbose']);
+  const isSingleLowerAllowed = token => allowLowerTokens.has(token) || hasOwn(userOverrides, token);
+  const lookupMatch = match => (hasOwn(dictionary, match) ? dictionary[match] : dictionary[lowerIndex[match.toLowerCase()]]);
 
   function translateString(text) {
     if (!text) return text;
     const trimmed = text.trim();
     if (!trimmed) return text;
 
-    // --- 纯标点节点：独立渲染的英文标点转中文标点（如 DOM 拆分的 "?" 节点）---
+    // --- 纯标点节点：独立渲染的英文标点转中文标点（如 DOM 拆分的 "?" 节点；保留 ".." / "..." 等多字符标点）---
     if (/^[?.!,;:]+$/.test(trimmed)) {
+      if (!/^[?!]+$|^[.,;:]$/.test(trimmed)) return text;
       const puncMap = { '?': '？', '.': '。', '!': '！', ',': '，', ';': '；', ':': '：' };
       let puncOut = '';
       for (const ch of trimmed) puncOut += puncMap[ch] || ch;
@@ -355,27 +365,21 @@
     // --- End Dynamic Regex ---
 
     // 0. 单单词全小写标识符绝对保护（防止误伤用户工程名、目录名、变量名、命令与文件名）
-    // 正规英文界面中，UI 标题与按钮均首字母大写（如 Project, Workspace, Task, Run）。
-    // 纯小写单个单词（如 project, workspace, run, task, file, branch, app）绝大多数来源于用户实体。
+    // 显式写入用户自定义词典或白名单的全小写词条允许翻译；其余纯小写单词保持原文。
     const isSingleLowerToken = /^[a-z0-9_-]+$/.test(trimmed);
-    if (isSingleLowerToken && !allowLowerTokens.has(trimmed)) {
+    if (isSingleLowerToken && !isSingleLowerAllowed(trimmed)) {
       return text;
     }
 
     // 1. Direct Literal Match (Exact match including punctuation)
-    if (dictionary[trimmed]) {
+    if (hasOwn(dictionary, trimmed)) {
       return text.replace(trimmed, () => dictionary[trimmed]);
     }
 
     const trimmedLower = trimmed.toLowerCase();
     const lowerKey = lowerIndex[trimmedLower];
-    if (lowerKey !== undefined) {
-      // 词汇防御：如果原文是纯单单词小写标识符（如 project, workspace, app），
-      // 但词典里对应的是首字母大写（如 Project, Workspace），则绝不降级误伤用户变量/文件夹名
-      const isSingleLowerToken = /^[a-z0-9_-]+$/.test(trimmed);
-      if (!(isSingleLowerToken && lowerKey !== trimmed)) {
-        return text.replace(trimmed, () => dictionary[lowerKey]);
-      }
+    if (lowerKey !== undefined && (!isSingleLowerToken || lowerKey === trimmed)) {
+      return text.replace(trimmed, () => dictionary[lowerKey]);
     }
 
     // 2. Intelligent Punctuation Stripping & Reconstruction
@@ -403,22 +407,22 @@
     }
 
     // Check stripped core in dictionary
-    let coreTranslated = '';
-    if (dictionary[core]) {
-      coreTranslated = dictionary[core];
-    } else {
-      const coreLower = core.toLowerCase();
-      const lowerKey = lowerIndex[coreLower];
-      if (lowerKey !== undefined) {
-        const isSingleLowerToken = /^[a-z0-9_-]+$/.test(core);
-        if (!(isSingleLowerToken && lowerKey !== core)) {
+    const isSingleLowerCore = /^[a-z0-9_-]+$/.test(core);
+    let coreTranslated;
+    if (!isSingleLowerCore || isSingleLowerAllowed(core)) {
+      if (hasOwn(dictionary, core)) {
+        coreTranslated = dictionary[core];
+      } else {
+        const coreLower = core.toLowerCase();
+        const lowerKey = lowerIndex[coreLower];
+        if (lowerKey !== undefined && (!isSingleLowerCore || lowerKey === core)) {
           coreTranslated = dictionary[lowerKey];
         }
       }
     }
 
-    if (coreTranslated) {
-      return text.replace(trimmed, () => coreTranslated + trailPunc);
+    if (coreTranslated !== undefined) {
+      return text.replace(trimmed, () => (coreTranslated ? coreTranslated + trailPunc : ''));
     }
 
     // 2.5 动态正则规则兜底（在词典精确匹配之后执行，避免劫持已校对的词条）
@@ -449,7 +453,7 @@
         longTemp = core.replace(longTextRegex, function (m) {
           longMatchedChars += (m.match(/[A-Za-z]/g) || []).length;
           longReplaced = true;
-          return dictionary[lowerIndex[m.toLowerCase()]];
+          return lookupMatch(m);
         });
       }
       // 覆盖率门槛与纯正度防御：
@@ -478,8 +482,8 @@
     if (hasChinese) {
       return text;
     }
-    // 短文本单单词小写标识符保护：如果核心词是单个全小写单词且词典中没有显式小写条目，直接保持原文，防止被短文本正则泛化误翻
-    if (/^[a-z0-9_-]+$/.test(core)) {
+    // 短文本单单词小写标识符保护：如果核心词是单个全小写单词且不在允许列表内，直接保持原文，防止被短文本正则泛化误翻
+    if (isSingleLowerCore) {
       return text;
     }
     // 全词校验门槛：短文本中每个 >=2 字母的单词都必须命中词典，
@@ -498,7 +502,7 @@
     if (shortTextRegex) {
       temp = core.replace(shortTextRegex, function (m) {
         replaced = true;
-        return dictionary[lowerIndex[m.toLowerCase()]];
+        return lookupMatch(m);
       });
     }
 

@@ -124,12 +124,21 @@ def check_app_running():
                                capture_output=True)
             return r.returncode == 0
         elif sys.platform == "win32":
-            # tasklist 输出使用控制台代码页，按字节读取后只匹配 ASCII 进程名
-            r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq Antigravity.exe"],
+            # tasklist 输出使用控制台代码页，按 CSV 第一列（可执行文件名）匹配 ASCII 进程名
+            r = subprocess.run(["tasklist", "/NH", "/FO", "CSV"],
                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-            return b"antigravity.exe" in r.stdout.lower()
+            names = {
+                line.split(b",", 1)[0].strip(b'"').lower()
+                for line in r.stdout.splitlines() if line
+            }
+            return bool(names & {
+                b"antigravity.exe",
+                b"antigravity - insiders.exe",
+                b"antigravity-insiders.exe",
+            })
         elif sys.platform.startswith("linux"):
-            r = subprocess.run(["pgrep", "-x", "[Aa]ntigravity"], capture_output=True)
+            # /proc/<pid>/comm 最多保留 15 字符，antigravity-insiders 会截断为 antigravity-ins
+            r = subprocess.run(["pgrep", "-x", "[Aa]ntigravity(-ins)?"], capture_output=True)
             return r.returncode == 0
     except Exception:
         pass
@@ -250,7 +259,7 @@ def patch_tray(tmp):
     new_template = (
         "const translatedActions = actions.map(action => {\n"
         "        if (action.label === 'No agents running') action.label = '没有智能体在运行';\n"
-        "        if (action.label && action.label.startsWith('Open ')) action.label = '打开 Antigravity';\n"
+        "        if (action.label && /^Open Antigravity\\b/.test(action.label)) action.label = action.label.replace(/^Open /, '打开 ');\n"
         "        if (action.label === 'Quit') action.label = '退出';\n"
         "        return action;\n"
         "    });\n"
@@ -288,7 +297,7 @@ def patch_quit_dialog(tmp):
         print("[*] main.js 已注入退出弹窗翻译，跳过")
         return
     replacements = [
-        ("buttons: ['Cancel', 'Quit']", "buttons: ['取消', '退出'] /* AG_ZH_QUIT_DIALOG */"),
+        ("buttons: ['Cancel', 'Quit']", "buttons: ['取消', '退出']"),
         ("title: 'Confirm Quit'", "title: '确认退出'"),
         ("message: 'Are you sure you want to quit?'", "message: '您确定要退出吗？'"),
         ("detail: 'There may be agents or background tasks running.'",
@@ -300,6 +309,7 @@ def patch_quit_dialog(tmp):
             content = content.replace(old, new)
             changed = True
     if changed:
+        content += "\n/* AG_ZH_QUIT_DIALOG */\n"
         with open(main_path, "w", encoding="utf-8") as f:
             f.write(content)
         print("[OK] 注入 退出弹窗翻译: main.js")
@@ -468,14 +478,15 @@ def _reset_windows_acl(path, recursive=False):
         return True
     args = ["icacls", path, "/reset"]
     if recursive:
-        args += ["/T", "/C", "/Q"]
+        args += ["/T", "/Q"]
     try:
         # icacls writes in the console code page on Chinese Windows, so keep the
-        # output as bytes and only look at the exit status.
-        subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # output as bytes. Omit /C so any failed entry returns a non-zero exit status,
+        # and also verify readability afterwards.
+        result = subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError:
         return False
-    return _is_accessible(path)
+    return result.returncode == 0 and _is_accessible(path)
 
 
 def _replace_archive(source, destination, source_unpacked=None):
@@ -645,6 +656,11 @@ def cmd_status(asar_path):
     print("unpacked 备份: %s" % ("存在" if os.path.isdir(bak + ".unpacked") else "无（若原包有外置文件需校验）"))
     content = asar.read_file(asar_path, "dist/preload.js").decode("utf-8")
     print("汉化: %s" % ("已注入" if _is_patched(content) else "未注入（原版）"))
+    try:
+        main_content = asar.read_file(asar_path, "dist/main.js").decode("utf-8")
+        print("实时指标: %s" % ("已启用" if "// AGZH METRICS START" in main_content else "未启用"))
+    except FileNotFoundError:
+        pass
 
 
 def cmd_repair_acl(asar_path):

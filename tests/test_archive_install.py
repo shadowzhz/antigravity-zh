@@ -393,10 +393,54 @@ class InstallTests(unittest.TestCase):
         with_metrics = self.archive.read_bytes()
         install.cmd_install(str(self.archive), str(self.archive.parent), metrics=True)
         self.assertEqual(with_metrics, self.archive.read_bytes())
+        install.cmd_status(str(self.archive))
+        self.assertIn('实时指标: 已启用', self.output.getvalue())
         self.run_install()
         self.assertEqual(original_main, asar.read_file(self.archive, 'dist/main.js'))
+        self.output.truncate(0)
+        self.output.seek(0)
+        install.cmd_status(str(self.archive))
+        self.assertIn('实时指标: 未启用', self.output.getvalue())
         self.run_restore()
         self.assertEqual(original_archive, self.archive.read_bytes())
+
+    def test_quit_dialog_marks_partial_match_and_stays_idempotent(self):
+        dist = self.root / 'dist'
+        dist.mkdir()
+        main = dist / 'main.js'
+        main.write_text("module.exports = {title: 'Confirm Quit'};\n", encoding='utf-8')
+        install.patch_quit_dialog(str(self.root))
+        first = main.read_text(encoding='utf-8')
+        self.assertIn('AG_ZH_QUIT_DIALOG', first)
+        self.assertIn('确认退出', first)
+        install.patch_quit_dialog(str(self.root))
+        self.assertEqual(main.read_text(encoding='utf-8'), first)
+
+    def test_reset_windows_acl_requires_zero_exit_code(self):
+        fake = subprocess.CompletedProcess(['icacls'], 5)
+        with patch.object(install.sys, 'platform', 'win32'), \
+             patch.object(install, '_is_accessible', return_value=True), \
+             patch.object(install.subprocess, 'run', return_value=fake) as run_mock:
+            self.assertFalse(install._reset_windows_acl(str(self.archive), recursive=True))
+        self.assertNotIn('/C', run_mock.call_args[0][0])
+
+
+class PlatformChecksTests(unittest.TestCase):
+    def test_check_app_running_matches_windows_insiders_image_name(self):
+        fake = subprocess.CompletedProcess(
+            ['tasklist'], 0,
+            stdout=b'"Antigravity - Insiders.exe","123","Console","1","10,000 K"\r\n'
+        )
+        with patch.object(install.sys, 'platform', 'win32'), \
+             patch.object(install.subprocess, 'run', return_value=fake):
+            self.assertTrue(install.check_app_running())
+        unrelated = subprocess.CompletedProcess(
+            ['tasklist'], 0,
+            stdout=b'"python.exe","123","Console","1","10,000 K"\r\n'
+        )
+        with patch.object(install.sys, 'platform', 'win32'), \
+             patch.object(install.subprocess, 'run', return_value=unrelated):
+            self.assertFalse(install.check_app_running())
 
 
 if __name__ == '__main__':

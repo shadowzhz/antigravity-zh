@@ -1,16 +1,16 @@
 /* ============================================================================
  * PART IV. 模型名称同行实时指标胶囊与悬浮详情卡（结构共用 + 白天/黑夜色彩自适应）
  * ============================================================================ */
-#antigravity\.agentSidePanelInputBox div[data-ag-row-mode] > div:first-child {
+:is(#antigravity\.agentSidePanelInputBox, .surface-composer.bg-card-border) div[data-ag-row-mode] > div:first-child {
   overflow: hidden !important;
   min-width: 0 !important;
 }
 
-#antigravity\.agentSidePanelInputBox div[data-ag-row-mode] > div:first-child > *:not(#ag-live-metrics-pill) {
+:is(#antigravity\.agentSidePanelInputBox, .surface-composer.bg-card-border) div[data-ag-row-mode] > div:first-child > *:not(#ag-live-metrics-pill) {
   flex-shrink: 0 !important;
 }
 
-#antigravity\.agentSidePanelInputBox div[data-ag-row-mode] > div:last-child {
+:is(#antigravity\.agentSidePanelInputBox, .surface-composer.bg-card-border) div[data-ag-row-mode] > div:last-child {
   flex-shrink: 0 !important;
   margin-left: auto !important;
 }
@@ -34,7 +34,7 @@
   font-size: 11px !important;
   font-weight: 500 !important;
   letter-spacing: -0.02em !important;
-  color: #262422 !important;
+  color: var(--muted-foreground, #262422) !important;
   opacity: 0.92 !important;
   line-height: 1 !important;
   white-space: nowrap;
@@ -74,46 +74,46 @@
   color: inherit !important;
 }
 
-#antigravity\.agentSidePanelInputBox #ag-live-metrics-pill .ag-sep,
+:is(#antigravity\.agentSidePanelInputBox, .surface-composer.bg-card-border) #ag-live-metrics-pill .ag-sep,
 #ag-live-metrics-pill .ag-sep {
   margin: 0 3.5px;
   opacity: 0.45 !important;
 }
 
-#antigravity\.agentSidePanelInputBox #ag-live-metrics-pill .ag-ctx-warn,
+:is(#antigravity\.agentSidePanelInputBox, .surface-composer.bg-card-border) #ag-live-metrics-pill .ag-ctx-warn,
 #ag-live-metrics-pill .ag-ctx-warn {
   color: #B45309 !important;
   font-weight: 600 !important;
 }
 
-#antigravity\.agentSidePanelInputBox #ag-live-metrics-pill .ag-ctx-crit,
+:is(#antigravity\.agentSidePanelInputBox, .surface-composer.bg-card-border) #ag-live-metrics-pill .ag-ctx-crit,
 #ag-live-metrics-pill .ag-ctx-crit {
   color: #DC2626 !important;
   font-weight: 700 !important;
 }
 
 /* 黑夜模式指标胶囊配色与高可见预警色 */
-body.dark #ag-live-metrics-pill {
+:is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) #ag-live-metrics-pill {
   color: #C8CAD4 !important;
   border-left-color: rgba(255, 255, 255, 0.18) !important;
 }
 
-body.dark #ag-live-metrics-pill:hover,
-body.dark #ag-live-metrics-pill:hover #ag-live-metrics-text {
+:is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) #ag-live-metrics-pill:hover,
+:is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) #ag-live-metrics-pill:hover #ag-live-metrics-text {
   color: #FFFFFF !important;
 }
 
-body.dark #ag-live-metrics-pill[data-ag-row-mode="bottom"] {
+:is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) #ag-live-metrics-pill[data-ag-row-mode="bottom"] {
   border-top-color: rgba(255, 255, 255, 0.14) !important;
 }
 
-body.dark #antigravity\.agentSidePanelInputBox #ag-live-metrics-pill .ag-ctx-warn,
-body.dark #ag-live-metrics-pill .ag-ctx-warn {
+:is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) :is(#antigravity\.agentSidePanelInputBox, .surface-composer.bg-card-border) #ag-live-metrics-pill .ag-ctx-warn,
+:is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) #ag-live-metrics-pill .ag-ctx-warn {
   color: #FBBF24 !important;
 }
 
-body.dark #antigravity\.agentSidePanelInputBox #ag-live-metrics-pill .ag-ctx-crit,
-body.dark #ag-live-metrics-pill .ag-ctx-crit {
+:is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) :is(#antigravity\.agentSidePanelInputBox, .surface-composer.bg-card-border) #ag-live-metrics-pill .ag-ctx-crit,
+:is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) #ag-live-metrics-pill .ag-ctx-crit {
   color: #F87171 !important;
 }
 
@@ -192,23 +192,23 @@ body.dark #ag-live-metrics-pill .ag-ctx-crit {
 }
 
 /* 黑夜模式悬浮指标详情卡配色 */
-body.dark #ag-live-metrics-tooltip {
+:is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) #ag-live-metrics-tooltip {
   background-color: var(--onyx-raised, #18181E) !important;
   border-color: rgba(255, 255, 255, 0.14) !important;
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.65), 0 2px 8px rgba(0, 0, 0, 0.4) !important;
   color: #EAEBF1 !important;
 }
 
-body.dark #ag-live-metrics-tooltip .ag-tt-hdr {
+:is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) #ag-live-metrics-tooltip .ag-tt-hdr {
   color: #FFFFFF !important;
   border-bottom-color: rgba(255, 255, 255, 0.12) !important;
 }
 
-body.dark #ag-live-metrics-tooltip .ag-tt-lbl {
+:is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) #ag-live-metrics-tooltip .ag-tt-lbl {
   color: #9EA0AC !important;
 }
 
-body.dark #ag-live-metrics-tooltip .ag-tt-val {
+:is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) #ag-live-metrics-tooltip .ag-tt-val {
   color: #FFFFFF !important;
 }
 

@@ -150,3 +150,16 @@ test('IPC and unsupported errors remain visible and error text is never parsed a
   assert.equal(unsupported.pill.textContent, '指标暂不可用');
   assert.match(unsupported.tooltip.textContent, /不支持指标通信/);
 });
+
+test('handles null cascadeId safely and ignores own pill DOM mutations', async () => {
+  const h = harness();
+  await settle();
+  h.requests[0].resolve({ cascadeId: null, hasData: false });
+  await settle();
+  assert.equal(h.pill.textContent, '指标暂不可用');
+  assert.match(h.tooltip.textContent, /指标响应与当前会话不一致/);
+
+  const beforeTimers = h.timers.size;
+  h.observers[0].callback([{ target: h.row.children[0], addedNodes: [h.pill], removedNodes: [] }]);
+  assert.equal(h.timers.size, beforeTimers);
+});

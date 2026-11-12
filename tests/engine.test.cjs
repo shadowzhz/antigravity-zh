@@ -327,3 +327,23 @@ test('git worktree and branch modal UI elements and attributes translate without
   // 验证 diff 保护区域不受误翻
   assert.equal(diffCodeText.nodeValue, 'Select branch');
 });
+
+test('user overrides unlock lowercase identifiers, beat bundled casing, and preserve ellipses', () => {
+  const h = harness({ project: '工程', 'active model': '用户模型' });
+  assert.equal(h.translateString('project'), '工程');
+  assert.equal(h.translateString('project.'), '工程。');
+  assert.equal(h.translateString('workspace'), 'workspace');
+  assert.equal(h.translateString('ACTIVE MODEL'), '用户模型');
+
+  h.setExternal({});
+  assert.equal(h.translateString('project'), 'project');
+  assert.equal(h.translateString('project.'), 'project.');
+  assert.equal(h.translateString('Active Model: Settings'), '当前模型: ' + bundle.Settings);
+  assert.equal(h.translateString('Active model: Settings'), '当前活跃模型: ' + bundle.Settings);
+
+  assert.equal(h.translateString('...'), '...');
+  assert.equal(h.translateString('..'), '..');
+  assert.equal(h.translateString('?'), '？');
+  assert.equal(h.translateString('Compact conversation history'), '压缩对话历史');
+  assert.equal(h.translateString('Failed to save image: '), '保存图片失败： ');
+});

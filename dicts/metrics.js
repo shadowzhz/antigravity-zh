@@ -91,7 +91,13 @@
       if (stopped || document.hidden || !currentId || !payload) return;
       const box = document.getElementById('antigravity.agentSidePanelInputBox') || document.querySelector('.surface-composer.bg-card-border');
       const nextRow = box && footer(box);
-      if (!nextRow || nextRow.children.length < 2) { if (pill) pill.style.display = 'none'; hideTooltip(); return; }
+      if (!nextRow || nextRow.children.length < 2) {
+        if (row) { row.removeAttribute('data-ag-row-mode'); row = null; }
+        if (resizeObserver) resizeObserver.disconnect();
+        if (pill) pill.style.display = 'none';
+        hideTooltip();
+        return;
+      }
       if (!pill) {
         pill = element('button'); pill.id = 'ag-live-metrics-pill'; pill.type = 'button';
         pill.setAttribute('aria-label', '查看实时指标详情');
@@ -186,7 +192,9 @@
       pending = true;
       Promise.resolve().then(() => ipc.invoke('agzh:metrics', id)).then(result => {
         if (stopped || document.hidden || requestRevision !== revision || metricsCascadeId(window.location) !== id) return;
-        if (!result || result.cascadeId.toLowerCase() !== id) throw new Error('指标响应与当前会话不一致');
+        if (!result || typeof result.cascadeId !== 'string' || result.cascadeId.toLowerCase() !== id) {
+          throw new Error('指标响应与当前会话不一致');
+        }
         if (result.error) payload = { cascadeId: id, error: '无法读取会话指标：' + result.error };
         else if (result.hasData) payload = result;
         else { clear(); return; }
@@ -220,11 +228,16 @@
     function onRoute() { checkRoute(); scheduleMount(); }
     function onScroll(event) { if (!tooltip || !tooltip.contains(event.target)) hideTooltip(); }
     function onKey(event) { if (event.key === 'Escape') { dismissed = true; hideTooltip(); } }
+    function isOwnMutation(mutation) {
+      if (mutation.target && mutation.target.closest &&
+          mutation.target.closest('#ag-live-metrics-pill, #ag-live-metrics-tooltip')) return true;
+      const changed = [...(mutation.addedNodes || []), ...(mutation.removedNodes || [])];
+      return changed.length > 0 && changed.every(node => node === pill || node === tooltip);
+    }
     const observer = new MutationObserver(mutations => {
       if (stopped || document.hidden) return;
       checkRoute();
-      if (mutations.some(mutation => !mutation.target.closest ||
-          !mutation.target.closest('#ag-live-metrics-pill, #ag-live-metrics-tooltip'))) scheduleMount();
+      if (mutations.some(mutation => !isOwnMutation(mutation))) scheduleMount();
     });
     observer.observe(document.body, { childList: true, subtree: true });
     window.addEventListener('popstate', onRoute);
