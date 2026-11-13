@@ -10,14 +10,14 @@
     style.id = 'agzh-metrics-style';
     style.textContent = metricsCss;
     (document.head || document.documentElement || document.body).appendChild(style);
-    let currentId = '', revision = 0, payload = null, pending = false, stopped = false;
-    let pollTimer, mountTimer, tooltipTimer, row = null, pill = null, tooltip = null, signature = '';
-    let hovered = false, focused = false, dismissed = false;
+    let currentId = '', revision = 0, payload = null, renderedPayload = null, pending = false, stopped = false;
+    let pollTimer, mountTimer, row = null, pill = null, tooltip = null, signature = '';
+    let open = false;
     let ipc, ipcError;
     try {
       ipc = require('electron').ipcRenderer;
       if (!ipc || typeof ipc.invoke !== 'function') throw new Error('IPC 不可用');
-    } catch (error) {
+    } catch {
       ipcError = '当前运行环境不支持指标通信，请使用 --metrics 重新安装并重启应用。';
     }
 
@@ -34,15 +34,13 @@
     function seconds(value) { return number(value, 2) + ' 秒'; }
     function tokens(value) { return value >= 1000 ? number(value / 1000, 1) + 'k' : number(value); }
     function hideTooltip() {
+      open = false;
+      if (pill) pill.setAttribute('aria-expanded', 'false');
       if (tooltip) { tooltip.removeAttribute('data-visible'); tooltip.setAttribute('aria-hidden', 'true'); }
     }
-    function leaveTooltip() {
-      hovered = false;
-      clearTimeout(tooltipTimer);
-      tooltipTimer = setTimeout(() => { if (!hovered && !focused) hideTooltip(); }, 120);
-    }
     function positionTooltip() {
-      if (!tooltip || !pill || pill.style.display === 'none' || dismissed || !(hovered || focused)) return;
+      if (!tooltip || !pill || pill.style.display === 'none' || !open) return;
+      pill.setAttribute('aria-expanded', 'true');
       tooltip.setAttribute('data-visible', '1');
       tooltip.setAttribute('aria-hidden', 'false');
       const rect = pill.getBoundingClientRect();
@@ -51,9 +49,12 @@
       tooltip.style.top = Math.max(8, rect.top >= height + 8 ? rect.top - height - 8
         : Math.min(rect.bottom + 8, window.innerHeight - height - 8)) + 'px';
     }
+    function toggleTooltip() {
+      if (open) hideTooltip();
+      else { open = true; positionTooltip(); }
+    }
     function clear() {
-      clearTimeout(tooltipTimer);
-      payload = null; signature = ''; hovered = false; focused = false; dismissed = false;
+      payload = null; renderedPayload = null; signature = '';
       if (pill) pill.style.display = 'none';
       hideTooltip();
     }
@@ -69,19 +70,11 @@
     }
     function layout() {
       if (!row || !row.isConnected || !pill || !payload) return;
-      const left = row.children[0], right = row.children[1];
-      if (!left || !right) return;
-      const children = Array.from(left.children).filter(child => child !== pill);
-      const gap = parseFloat(getComputedStyle(left).columnGap) || 0;
-      const leftWidth = children.reduce((width, child) => width + Math.max(child.offsetWidth, child.scrollWidth), 0)
-        + Math.max(0, children.length - 1) * gap;
-      const needed = Math.max(150, pill.firstElementChild.scrollWidth + 24);
-      const mode = row.clientWidth - leftWidth - right.offsetWidth - 14 < needed ? 'bottom' : 'middle';
-      if (row.getAttribute('data-ag-row-mode') !== mode) row.setAttribute('data-ag-row-mode', mode);
-      if (pill.getAttribute('data-ag-row-mode') !== mode) pill.setAttribute('data-ag-row-mode', mode);
-      if (mode === 'bottom') {
-        if (pill.previousElementSibling !== row) row.after(pill);
-      } else if (pill.parentElement !== left) left.appendChild(pill);
+      const left = row.children[0];
+      if (!left) return;
+      if (row.getAttribute('data-ag-row-mode') !== 'middle') row.setAttribute('data-ag-row-mode', 'middle');
+      if (pill.getAttribute('data-ag-row-mode') !== 'middle') pill.setAttribute('data-ag-row-mode', 'middle');
+      if (pill.parentElement !== left) left.appendChild(pill);
       positionTooltip();
     }
     const resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(scheduleMount) : null;
@@ -100,23 +93,17 @@
       }
       if (!pill) {
         pill = element('button'); pill.id = 'ag-live-metrics-pill'; pill.type = 'button';
-        pill.setAttribute('aria-label', '查看实时指标详情');
-        pill.setAttribute('aria-describedby', 'ag-live-metrics-tooltip');
+        pill.setAttribute('aria-label', '切换实时指标详情');
+        pill.setAttribute('aria-expanded', 'false');
+        pill.setAttribute('aria-controls', 'ag-live-metrics-tooltip');
         pill.setAttribute('translate', 'no');
         const text = element('span'); text.id = 'ag-live-metrics-text'; pill.appendChild(text);
         tooltip = element('div'); tooltip.id = 'ag-live-metrics-tooltip';
         tooltip.setAttribute('role', 'tooltip'); tooltip.setAttribute('translate', 'no');
         tooltip.setAttribute('aria-hidden', 'true'); document.body.appendChild(tooltip);
-        const enterTooltip = () => { clearTimeout(tooltipTimer); hovered = true; dismissed = false; positionTooltip(); };
-        pill.addEventListener('mouseenter', enterTooltip);
-        pill.addEventListener('mouseleave', leaveTooltip);
-        tooltip.addEventListener('mouseenter', enterTooltip);
-        tooltip.addEventListener('mouseleave', leaveTooltip);
-        pill.addEventListener('focus', () => { focused = true; dismissed = false; positionTooltip(); });
-        pill.addEventListener('blur', () => { focused = false; if (!hovered) hideTooltip(); });
-        pill.addEventListener('click', () => { dismissed = false; positionTooltip(); });
+        pill.addEventListener('click', toggleTooltip);
         pill.addEventListener('keydown', event => {
-          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); dismissed = false; positionTooltip(); }
+          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleTooltip(); }
         });
       }
       if (!tooltip.isConnected) document.body.appendChild(tooltip);
@@ -139,44 +126,43 @@
     }
     function render() {
       if (!pill || !payload) return;
-      const nextSignature = JSON.stringify(payload);
-      if (signature !== nextSignature) {
-        signature = nextSignature;
-        const text = pill.firstElementChild;
-        text.replaceChildren(); tooltip.replaceChildren();
-        if (payload.error) {
-          text.textContent = '指标暂不可用';
-          tooltip.appendChild(element('div', 'ag-tt-hdr', '指标读取失败'));
-          tooltip.appendChild(element('div', '', payload.error));
-        } else {
-          const last = payload.last, total = payload.total, turn = payload.turn;
-          const limit = payload.contextLimit;
-          const percent = last.ctx / limit * 100;
-          const parts = [number(last.tps, 1) + ' tok/s', '首字 ' + seconds(last.ttft),
-            '上下文 ' + tokens(last.ctx) + '/参考' + tokens(limit) + ' (' + number(percent) + '%)',
-            '输出 ' + tokens(last.outTok)];
-          parts.forEach((value, index) => {
-            if (index) text.appendChild(element('span', 'ag-sep', '·'));
-            const warning = index === 2 ? (percent >= 90 ? 'ag-ctx-crit' : percent >= 75 ? 'ag-ctx-warn' : '') : '';
-            text.appendChild(element('span', warning, value));
-          });
-          tooltip.appendChild(element('div', 'ag-tt-hdr', '最新已记录调用 · 记录 ' + number(last.idx + 1)));
-          detailRow(tooltip, '生成速度 / 端到端', number(last.tps, 1) + ' / ' + number(last.e2eTps, 1) + ' tok/s');
-          detailRow(tooltip, '首字延迟 / 流式时长', seconds(last.ttft) + ' / ' + seconds(last.stream));
-          detailRow(tooltip, '输入 / 缓存读取', number(last.inTok) + ' / ' + number(last.cacheRead));
-          detailRow(tooltip, '输出 / 思考 / 正文', [last.outTok, last.thinkTok, last.respTok].map(value => number(value)).join(' / '));
-          detailRow(tooltip, '上下文 / 参考容量', number(last.ctx) + ' / ' + number(limit));
-          tooltip.appendChild(element('div', '', '256k 仅为参考容量，不代表当前模型上限或压缩阈值。'));
-          tooltip.appendChild(element('div', 'ag-tt-hdr ag-tt-sec', '本轮统计（按已记录调用）'));
-          detailRow(tooltip, '调用数 / 时长', number(turn.steps) + ' / ' + seconds(turn.duration));
-          detailRow(tooltip, '输出 / 思考 / 正文', [turn.outTok, turn.thinkTok, turn.respTok].map(value => number(value)).join(' / '));
-          tooltip.appendChild(element('div', 'ag-tt-hdr ag-tt-sec', '会话累计'));
-          detailRow(tooltip, '调用 / 用户提问', number(total.calls) + ' / ' + number(total.userTurns));
-          detailRow(tooltip, '输入 / 缓存读取', number(total.inTok) + ' / ' + number(total.cacheRead));
-          const input = total.inTok + total.cacheRead;
-          const cacheRate = input > 0 ? number(total.cacheRead / input * 100, 1) + '%' : '—';
-          detailRow(tooltip, '缓存读取占输入', cacheRate);
-          detailRow(tooltip, '输出 / 思考 / 正文', [total.outTok, total.thinkTok, total.respTok].map(value => number(value)).join(' / '));
+      if (payload !== renderedPayload) {
+        renderedPayload = payload;
+        const nextSignature = JSON.stringify(payload);
+        if (signature !== nextSignature) {
+          signature = nextSignature;
+          const text = pill.firstElementChild;
+          text.replaceChildren(); tooltip.replaceChildren();
+          if (payload.error) {
+            text.textContent = '指标暂不可用';
+            tooltip.appendChild(element('div', 'ag-tt-hdr', '指标读取失败'));
+            tooltip.appendChild(element('div', '', payload.error));
+          } else {
+            const last = payload.last, total = payload.total, turn = payload.turn;
+            const limit = payload.contextLimit;
+            const parts = [number(last.tps, 1) + ' tok/s', '首字 ' + seconds(last.ttft), '输出 ' + tokens(last.outTok)];
+            parts.forEach((value, index) => {
+              if (index) text.appendChild(element('span', 'ag-sep', '·'));
+              text.appendChild(element('span', '', value));
+            });
+            tooltip.appendChild(element('div', 'ag-tt-hdr', '最新已记录调用 · 记录 ' + number(last.idx + 1)));
+            detailRow(tooltip, '生成速度 / 端到端', number(last.tps, 1) + ' / ' + number(last.e2eTps, 1) + ' tok/s');
+            detailRow(tooltip, '首字延迟 / 流式时长', seconds(last.ttft) + ' / ' + seconds(last.stream));
+            detailRow(tooltip, '输入 / 缓存读取', number(last.inTok) + ' / ' + number(last.cacheRead));
+            detailRow(tooltip, '输出 / 思考 / 正文', [last.outTok, last.thinkTok, last.respTok].map(value => number(value)).join(' / '));
+            detailRow(tooltip, '上下文 / 参考容量', number(last.ctx) + ' / ' + number(limit));
+            tooltip.appendChild(element('div', '', '256k 仅为参考容量，不代表当前模型上限或压缩阈值。'));
+            tooltip.appendChild(element('div', 'ag-tt-hdr ag-tt-sec', '本轮统计（按已记录调用）'));
+            detailRow(tooltip, '调用数 / 时长', number(turn.steps) + ' / ' + seconds(turn.duration));
+            detailRow(tooltip, '输出 / 思考 / 正文', [turn.outTok, turn.thinkTok, turn.respTok].map(value => number(value)).join(' / '));
+            tooltip.appendChild(element('div', 'ag-tt-hdr ag-tt-sec', '会话累计'));
+            detailRow(tooltip, '调用 / 用户提问', number(total.calls) + ' / ' + number(total.userTurns));
+            detailRow(tooltip, '输入 / 缓存读取', number(total.inTok) + ' / ' + number(total.cacheRead));
+            const input = total.inTok + total.cacheRead;
+            const cacheRate = input > 0 ? number(total.cacheRead / input * 100, 1) + '%' : '—';
+            detailRow(tooltip, '缓存读取占输入', cacheRate);
+            detailRow(tooltip, '输出 / 思考 / 正文', [total.outTok, total.thinkTok, total.respTok].map(value => number(value)).join(' / '));
+          }
         }
       }
       pill.style.display = 'inline-flex';
@@ -221,18 +207,32 @@
       scheduleMount(); armPoll();
     }
     function onVisibility() {
-      clearTimeout(pollTimer); clearTimeout(mountTimer); clearTimeout(tooltipTimer); mountTimer = undefined;
+      clearTimeout(pollTimer); clearTimeout(mountTimer); mountTimer = undefined;
       if (document.hidden) { revision++; hideTooltip(); }
       else tick();
     }
     function onRoute() { checkRoute(); scheduleMount(); }
     function onScroll(event) { if (!tooltip || !tooltip.contains(event.target)) hideTooltip(); }
-    function onKey(event) { if (event.key === 'Escape') { dismissed = true; hideTooltip(); } }
+    function onKey(event) { if (event.key === 'Escape') hideTooltip(); }
+    function onPointerDown(event) {
+      if (!open || !pill || !tooltip) return;
+      if (!pill.contains(event.target) && !tooltip.contains(event.target)) hideTooltip();
+    }
     function isOwnMutation(mutation) {
       if (mutation.target && mutation.target.closest &&
           mutation.target.closest('#ag-live-metrics-pill, #ag-live-metrics-tooltip')) return true;
-      const changed = [...(mutation.addedNodes || []), ...(mutation.removedNodes || [])];
-      return changed.length > 0 && changed.every(node => node === pill || node === tooltip);
+      const added = mutation.addedNodes;
+      const removed = mutation.removedNodes;
+      const addedLen = added ? added.length : 0;
+      const removedLen = removed ? removed.length : 0;
+      if (addedLen + removedLen === 0) return false;
+      for (let i = 0; i < addedLen; i++) {
+        if (added[i] !== pill && added[i] !== tooltip) return false;
+      }
+      for (let i = 0; i < removedLen; i++) {
+        if (removed[i] !== pill && removed[i] !== tooltip) return false;
+      }
+      return true;
     }
     const observer = new MutationObserver(mutations => {
       if (stopped || document.hidden) return;
@@ -247,8 +247,9 @@
     window.addEventListener('keydown', onKey);
     if (window.navigation) window.navigation.addEventListener('currententrychange', onRoute);
     document.addEventListener('visibilitychange', onVisibility);
+    document.addEventListener('pointerdown', onPointerDown, true);
     window.addEventListener('unload', () => {
-      stopped = true; revision++; clearTimeout(pollTimer); clearTimeout(mountTimer); clearTimeout(tooltipTimer);
+      stopped = true; revision++; clearTimeout(pollTimer); clearTimeout(mountTimer);
       observer.disconnect(); if (resizeObserver) resizeObserver.disconnect();
       window.removeEventListener('popstate', onRoute);
       window.removeEventListener('hashchange', onRoute);
@@ -257,6 +258,7 @@
       window.removeEventListener('keydown', onKey);
       if (window.navigation) window.navigation.removeEventListener('currententrychange', onRoute);
       document.removeEventListener('visibilitychange', onVisibility);
+      document.removeEventListener('pointerdown', onPointerDown, true);
       if (pill) pill.remove(); if (tooltip) tooltip.remove();
       style.remove();
       if (row) row.removeAttribute('data-ag-row-mode');

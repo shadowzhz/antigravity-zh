@@ -54,7 +54,10 @@ LEGACY_ENGINE_START_MARKER = "(function() {\n  const dictionary = {"
 
 def build_injection(dictionary, metrics=False):
     """生成汉化引擎及可选的独立指标胶囊。"""
-    payload = json.dumps(json.dumps(dictionary, ensure_ascii=False), ensure_ascii=True)
+    compact_dict = json.dumps(dictionary, ensure_ascii=False, separators=(",", ":"))
+    payload = (json.dumps(compact_dict, ensure_ascii=False)
+               .replace("\u2028", "\\u2028")
+               .replace("\u2029", "\\u2029"))
     dict_block = "// ===== %s =====\n  const bundledDictionary = JSON.parse(%s);" % (TAG, payload)
     template = _load_engine_template()
     if template.count(DICT_PLACEHOLDER) != 1:
@@ -66,7 +69,9 @@ def build_injection(dictionary, metrics=False):
     metrics_runtime = ""
     if metrics:
         with open(os.path.join(HERE, "dicts", "metrics.css"), encoding="utf-8") as source:
-            css = json.dumps(source.read(), ensure_ascii=True)
+            css = (json.dumps(source.read(), ensure_ascii=False)
+                   .replace("\u2028", "\\u2028")
+                   .replace("\u2029", "\\u2029"))
         with open(os.path.join(HERE, "dicts", "metrics.js"), encoding="utf-8") as source:
             metrics_runtime = "  const metricsCss = %s;\n%s" % (css, source.read())
     content = template.replace(DICT_PLACEHOLDER, dict_block)
@@ -164,23 +169,16 @@ def codesign_macos(app_path):
 
 # ---------------------------------------------------------------- 字典与注入
 def load_dictionary():
-    d = {}
     dict_path = os.path.join(HERE, "dicts", "zh_cn.json")
     if not os.path.exists(dict_path):
         sys.exit("[ERR] 找不到字典文件: %s" % dict_path)
     with open(dict_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    if isinstance(data, dict):
-        d.update(data)
-    elif isinstance(data, list):
-        for item in data:
-            if isinstance(item, dict) and "key" in item and "value" in item:
-                d[item["key"]] = item["value"]
-    if not d:
+    if not isinstance(data, dict) or not data:
         raise ValueError("字典为空")
-    if any(not isinstance(k, str) or not k.strip() or not isinstance(v, str) for k, v in d.items()):
+    if any(not isinstance(k, str) or not k.strip() or not isinstance(v, str) for k, v in data.items()):
         raise ValueError("词典必须由非空字符串键和字符串译文组成")
-    return d
+    return data
 
 
 def patch_file(path, dictionary, metrics=False):
@@ -419,7 +417,7 @@ function translateMenu(menuItem) {
 def sha256(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
 
@@ -517,7 +515,7 @@ def _replace_archive(source, destination, source_unpacked=None):
                 if entry["unpacked"] and entry.get("executable"):
                     target = asar._safe_path(staged_unpacked, rel)
                     os.chmod(target, os.stat(target).st_mode | 0o111)
-        asar.validate_archive(staged_asar)
+        asar.validate_archive(staged_asar, check_integrity=False)
         had_archive = os.path.exists(destination)
         if had_archive:
             shutil.copy2(destination, old_archive)
@@ -576,7 +574,6 @@ def _prepare_existing_backup(asar_path):
         # required sidecar still belongs to the original archive.
         _replace_archive(bak, bak, source_unpacked)
         print("[OK] 已校验并补齐旧版备份的 unpacked 文件")
-    asar.validate_archive(bak)
     return bak
 
 
@@ -592,43 +589,56 @@ def _ensure_external_dictionary():
         print("[*] 保留已有用户词典: %s" % ext_dict)
 
 
+PATCH_TARGETS = (
+    "dist/preload.js",
+    "dist/ideInstall/wizardPreload.js",
+    "dist/menu.js",
+    "dist/tray.js",
+    "dist/main.js",
+    "dist/loadingOverlay.js",
+    "dist/agzh-metrics.cjs",
+)
+
+
 def cmd_install(asar_path, resources_dir, metrics=False):
     with _archive_lock(asar_path):
         _require_app_stopped()
         dictionary = load_dictionary()
-        metadata = asar.validate_archive(asar_path)
+        asar.validate_archive(asar_path, check_integrity=False)
         current_preload = asar.read_file(asar_path, "dist/preload.js").decode("utf-8")
+        if _is_patched(current_preload):
+            source_asar = _prepare_existing_backup(asar_path)
+            print("[*] 保留已校验的官方原版备份（基于原版备份重建补丁）")
+        else:
+            # Back up the current pristine pair regardless of mtime; a
+            # vendor update can preserve or backdate timestamps.
+            _replace_archive(asar_path, asar_path + ".bak")
+            source_asar = asar_path
+            print("[OK] 已成套备份当前原版 ASAR 与 unpacked 文件")
+        source_unpacked = source_asar + ".unpacked"
         with tempfile.TemporaryDirectory(prefix="agy_zh_") as tmp:
             extracted = os.path.join(tmp, "source")
-            print("[*] 解包 app.asar ...")
-            asar.extract(asar_path, extracted)
-            if _is_patched(current_preload):
-                _prepare_existing_backup(asar_path)
-                print("[*] 保留已校验的官方原版备份")
-            else:
-                # Back up the current pristine pair regardless of mtime; a
-                # vendor update can preserve or backdate timestamps.
-                _replace_archive(asar_path, asar_path + ".bak")
-                print("[OK] 已成套备份当前原版 ASAR 与 unpacked 文件")
+            print("[*] 提取待修补文件 ...")
+            asar.extract_files(source_asar, extracted, PATCH_TARGETS, unpacked_root=source_unpacked)
             print("[*] 字典词条: %d" % len(dictionary))
             if metrics:
                 print("[*] 实时指标胶囊: 已启用")
             patch_file(os.path.join(extracted, "dist", "preload.js"), dictionary, metrics=metrics)
             wizard = os.path.join(extracted, "dist", "ideInstall", "wizardPreload.js")
             if os.path.exists(wizard):
-                patch_file(wizard, dictionary, metrics=metrics)
+                patch_file(wizard, dictionary, metrics=False)
             patch_native_menu(extracted)
             patch_tray(extracted)
             patch_quit_dialog(extracted)
             patch_loading_overlay(extracted)
             patch_metrics(extracted, metrics)
             new_asar = os.path.join(tmp, "app.asar")
-            print("[*] 重新打包（保留原始 unpacked 清单和执行标记）...")
-            asar.pack(extracted, new_asar, metadata=metadata)
-            asar.validate_archive(new_asar)
+            print("[*] 增量流式打包（保留原始 unpacked 清单和执行标记）...")
+            asar.repack_patched(source_asar, extracted, new_asar, PATCH_TARGETS, unpacked_root=source_unpacked)
+            asar.validate_archive(new_asar, unpacked_root=source_unpacked, check_integrity=False)
             _ensure_external_dictionary()
             _require_app_stopped()
-            _replace_archive(new_asar, asar_path)
+            _replace_archive(new_asar, asar_path, source_unpacked=source_unpacked)
         if sys.platform == "darwin":
             codesign_macos(os.path.dirname(os.path.dirname(resources_dir)))
         suffix = "（含实时指标胶囊）" if metrics else ""

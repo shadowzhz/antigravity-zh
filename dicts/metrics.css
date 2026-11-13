@@ -19,16 +19,17 @@
   position: relative;
   display: none;
   align-items: center;
+  box-sizing: border-box;
   flex: 1 1 0% !important;
   max-width: max-content !important;
   min-width: 0 !important;
   height: 22px;
   margin-left: 6px;
   margin-right: 4px;
-  padding: 0 4px 0 8px;
+  padding: 0 9px;
   background: transparent;
-  border: 0;
-  border-left: 1px solid rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 9999px !important;
   font-family: var(--font-mono) !important;
   font-variant-numeric: tabular-nums;
   font-size: 11px !important;
@@ -41,12 +42,16 @@
   overflow: hidden;
   text-overflow: ellipsis;
   user-select: none;
-  cursor: default;
+  cursor: pointer;
 }
 
 #ag-live-metrics-pill:focus-visible {
   outline: 2px solid var(--primary, #D97757);
   outline-offset: -2px;
+}
+
+#ag-live-metrics-pill:hover {
+  border-color: rgba(0, 0, 0, 0.34);
 }
 
 #ag-live-metrics-pill:hover,
@@ -55,23 +60,16 @@
   color: #0A0A0A !important;
 }
 
-#ag-live-metrics-pill[data-ag-row-mode="bottom"] {
-  flex: 0 0 auto !important;
-  width: calc(100% - 8px) !important;
-  max-width: calc(100% - 8px) !important;
-  height: 20px !important;
-  margin: 2px 4px !important;
-  padding: 2px 4px 0 6px !important;
-  border-left: none !important;
-  border-top: 1px dashed rgba(0, 0, 0, 0.14) !important;
-}
-
 #ag-live-metrics-pill #ag-live-metrics-text {
   font-family: var(--font-mono) !important;
   font-size: 11px !important;
   font-weight: 500 !important;
   letter-spacing: -0.02em !important;
   color: inherit !important;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 :is(#antigravity\.agentSidePanelInputBox, .surface-composer.bg-card-border) #ag-live-metrics-pill .ag-sep,
@@ -80,41 +78,19 @@
   opacity: 0.45 !important;
 }
 
-:is(#antigravity\.agentSidePanelInputBox, .surface-composer.bg-card-border) #ag-live-metrics-pill .ag-ctx-warn,
-#ag-live-metrics-pill .ag-ctx-warn {
-  color: #B45309 !important;
-  font-weight: 600 !important;
-}
-
-:is(#antigravity\.agentSidePanelInputBox, .surface-composer.bg-card-border) #ag-live-metrics-pill .ag-ctx-crit,
-#ag-live-metrics-pill .ag-ctx-crit {
-  color: #DC2626 !important;
-  font-weight: 700 !important;
-}
-
-/* 黑夜模式指标胶囊配色与高可见预警色 */
+/* 黑夜模式指标胶囊配色 */
 :is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) #ag-live-metrics-pill {
   color: #C8CAD4 !important;
-  border-left-color: rgba(255, 255, 255, 0.18) !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+}
+
+:is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) #ag-live-metrics-pill:hover {
+  border-color: rgba(255, 255, 255, 0.34) !important;
 }
 
 :is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) #ag-live-metrics-pill:hover,
 :is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) #ag-live-metrics-pill:hover #ag-live-metrics-text {
   color: #FFFFFF !important;
-}
-
-:is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) #ag-live-metrics-pill[data-ag-row-mode="bottom"] {
-  border-top-color: rgba(255, 255, 255, 0.14) !important;
-}
-
-:is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) :is(#antigravity\.agentSidePanelInputBox, .surface-composer.bg-card-border) #ag-live-metrics-pill .ag-ctx-warn,
-:is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) #ag-live-metrics-pill .ag-ctx-warn {
-  color: #FBBF24 !important;
-}
-
-:is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) :is(#antigravity\.agentSidePanelInputBox, .surface-composer.bg-card-border) #ag-live-metrics-pill .ag-ctx-crit,
-:is(html.dark, body.dark, [data-theme="dark"], .vscode-dark) #ag-live-metrics-pill .ag-ctx-crit {
-  color: #F87171 !important;
 }
 
 #ag-live-metrics-tooltip {
@@ -141,7 +117,7 @@
   white-space: normal;
   opacity: 0;
   visibility: hidden;
-  pointer-events: auto;
+  pointer-events: none;
   transform: translateY(4px);
   transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s;
 }
@@ -149,6 +125,7 @@
 #ag-live-metrics-tooltip[data-visible="1"] {
   opacity: 1 !important;
   visibility: visible !important;
+  pointer-events: auto;
   transform: translateY(0);
 }
 
@@ -185,9 +162,6 @@
   color: #0A0A0A !important;
   font-weight: 500 !important;
   text-align: right;
-}
-
-#ag-live-metrics-tooltip .ag-tt-val {
   min-width: 0;
 }
 

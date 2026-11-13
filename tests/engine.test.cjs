@@ -347,3 +347,29 @@ test('user overrides unlock lowercase identifiers, beat bundled casing, and pres
   assert.equal(h.translateString('Compact conversation history'), '压缩对话历史');
   assert.equal(h.translateString('Failed to save image: '), '保存图片失败： ');
 });
+
+test('Explored dictionary entries take priority over dynamic fallback and long-text preserves brand terms', () => {
+  const h = harness();
+  assert.equal(h.translateString('Explored'), '已浏览');
+  assert.equal(h.translateString('Explored.'), '已浏览。');
+  assert.equal(h.translateString('Explored files, ran commands'), '已探索文件、已执行命令');
+  assert.equal(h.translateString('Explored 3 files'), '浏览了 3 个文件');
+  assert.equal(h.translateString('Explored src/app.js'), '浏览了 src/app.js');
+
+  h.setExternal({ 'Explored 3 files': '已浏览三个文件' });
+  assert.equal(h.translateString('Explored 3 files'), '已浏览三个文件');
+  h.setExternal({});
+
+  assert.equal(h.translateString('Open Antigravity Settings Window'), '打开 Antigravity 设置窗口');
+  assert.equal(h.translateString('Open Antigravity Settings to configure'), 'Open Antigravity Settings to configure');
+  assert.equal(h.translateString('已打开 Antigravity Settings Window'), '已打开 Antigravity Settings Window');
+
+  assert.equal(h.translateString('Your quota for this model is running low.'), bundle['Your quota for this model is running low.']);
+  assert.equal(h.translateString('Your quota for this model has run out.'), bundle['Your quota for this model has run out.']);
+  assert.equal(h.translateString('of the customization budget is available.'), bundle['of the customization budget is available.']);
+  assert.equal(h.translateString('Undo to here.'), '撤销到此处。');
+  assert.equal(h.translateString('Undo to this point.'), '撤销到此节点。');
+  assert.equal(h.translateString('View archived in the sidebar'), bundle['View archived in the sidebar']);
+  assert.equal(h.translateString('menu).'), bundle['menu).']);
+  assert.equal(h.translateString('menu)'), bundle['menu)']);
+});

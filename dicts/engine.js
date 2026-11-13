@@ -8,7 +8,25 @@
   // replaceable snapshot; removing a key restores its bundled value.
   const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
   const baseDictionary = Object.freeze(Object.assign(Object.create(null), bundledDictionary));
-  let dictionary, userOverrides, lowerIndex, longTextRegex, shortTextRegex;
+  const isAlnumKey = /^[a-zA-Z0-9]+$/;
+  const startAlnum = /^[a-zA-Z0-9]/;
+  const endAlnum = /[a-zA-Z0-9]$/;
+  const hasAsciiAlpha = /[A-Za-z]/;
+  const MAX_CACHE_SIZE = 4096;
+  const translationCache = new Map();
+  let dictionary, userOverrides, lowerIndex, buckets3, buckets12;
+  let hasNonAsciiAlphaKeys = false;
+  let dictVersion = 0;
+  let observerStarted = false;
+
+  function isWordBound(code) {
+    return (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || (code >= 48 && code <= 57) || code === 45;
+  }
+
+  function isAsciiAlphaCode(code) {
+    return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+  }
+
   function rebuildDict(overrides) {
     const nextUser = Object.assign(Object.create(null), overrides);
     const next = Object.assign(Object.create(null), baseDictionary, nextUser);
@@ -21,14 +39,46 @@
       if (!(key.toLowerCase() in index)) index[key.toLowerCase()] = key;
     }
     const keys = Object.keys(next).sort((a, b) => b.length - a.length);
-    const longRegex = compileDictionaryRegex(keys.filter(key => key.length >= 4));
-    const shortRegex = compileDictionaryRegex(keys.filter(key => key.length > 3 || /^[a-zA-Z0-9]+$/.test(key)));
+    const nextBuckets3 = new Map();
+    const nextBuckets12 = new Map();
+    let nextHasNonAsciiAlpha = false;
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      if (!hasAsciiAlpha.test(key)) nextHasNonAsciiAlpha = true;
+      const kLen = key.length;
+      const inLong = kLen >= 4;
+      const inShort = kLen > 3 || isAlnumKey.test(key);
+      if (!inLong && !inShort) continue;
+      const kl = key.toLowerCase();
+      const entry = {
+        kl,
+        len: kl.length,
+        needL: startAlnum.test(key),
+        needR: endAlnum.test(key),
+        inLong,
+        inShort
+      };
+      if (entry.len >= 3) {
+        const prefix = kl.slice(0, 3);
+        let list = nextBuckets3.get(prefix);
+        if (!list) nextBuckets3.set(prefix, (list = []));
+        list.push(entry);
+      } else if (entry.len >= 1) {
+        const prefix = kl[0];
+        let list = nextBuckets12.get(prefix);
+        if (!list) nextBuckets12.set(prefix, (list = []));
+        list.push(entry);
+      }
+    }
     // Publish only after the complete snapshot has validated and compiled.
     dictionary = next;
     userOverrides = nextUser;
     lowerIndex = index;
-    longTextRegex = longRegex;
-    shortTextRegex = shortRegex;
+    buckets3 = nextBuckets3;
+    buckets12 = nextBuckets12;
+    hasNonAsciiAlphaKeys = nextHasNonAsciiAlpha;
+    dictVersion++;
+    translationCache.clear();
   }
 
   let lastExternalContents = null;
@@ -38,21 +88,27 @@
       const path = require('path');
       const file = path.join(require('os').homedir(), '.antigravity-zh', 'zh-CN.json');
       const raw = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : '{}';
-      if (raw === lastExternalContents) return;
+      if (raw === lastExternalContents && dictionary) return;
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('词典必须是 JSON 对象');
       const items = Object.prototype.hasOwnProperty.call(parsed, 'translations') ? parsed.translations : parsed;
       if (!items || typeof items !== 'object' || Array.isArray(items)) throw new Error('translations 必须是对象');
       const overrides = Object.create(null);
+      let hasNewOverrides = false;
       for (const [key, value] of Object.entries(items)) {
         if (key.startsWith('__')) continue;
         if (!key.trim() || typeof value !== 'string') throw new Error('词条必须使用非空键和字符串译文');
         overrides[key] = value;
+        hasNewOverrides = true;
       }
-      rebuildDict(overrides);
+      const hadOverrides = userOverrides ? Object.keys(userOverrides).length > 0 : false;
+      if (!dictionary || hadOverrides || hasNewOverrides) {
+        rebuildDict(overrides);
+        if (observerStarted && document.body) translateNode(document.body);
+      }
       lastExternalContents = raw;
-      if (document.body) translateNode(document.body);
     } catch (error) {
+      if (!dictionary) rebuildDict(Object.create(null));
       // A partial save or unavailable preload fs keeps the last valid snapshot.
       console.warn('[Antigravity-ZH] 外部词典未更新:', error.message);
     }
@@ -67,7 +123,7 @@
       let timer;
       // Watch the directory, so rename-based editor saves do not detach us
       // from the current file. Coalesce bursts into one reload.
-      const watcher = fs.watch(directory, { persistent: false }, (event, filename) => {
+      const watcher = fs.watch(directory, { persistent: false }, (_event, filename) => {
         if (filename != null && String(filename) !== 'zh-CN.json') return;
         clearTimeout(timer);
         timer = setTimeout(loadExternalDict, 200);
@@ -80,21 +136,6 @@
     } catch (error) {
       console.warn('[Antigravity-ZH] 无法监听外部词典:', error.message);
     }
-  }
-
-  function escapeRegExp(str) {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-
-  // Compile dictionary alternatives once per dictionary update, not for every text node.
-  function compileDictionaryRegex(keys) {
-    if (!keys.length) return null;
-    const alternatives = keys.map((key) => {
-      const startBoundary = /^[a-zA-Z0-9]/.test(key) ? '(?<![A-Za-z0-9-])' : '';
-      const endBoundary = /[a-zA-Z0-9]$/.test(key) ? '(?![A-Za-z0-9-])' : '';
-      return startBoundary + escapeRegExp(key) + endBoundary;
-    });
-    return new RegExp(alternatives.join('|'), 'gi');
   }
 
   // 时长格式化：1d2h3m4.5s / 1d 2h 3m -> 1 天 2 小时 3 分 4.5 秒
@@ -110,6 +151,13 @@
   const meridiem = function (ap) { return ap.toUpperCase() === 'PM' ? '下午' : '上午'; };
   // 动态正则规则（参考社区汉化项目沉淀，整串锚定匹配；在词典精确匹配之后执行）
   const dynamicRules = [
+    [/^Worked for ([\d smhd.]+)$/, function (_, d) { return '已工作 ' + fmtDuration(d); }],
+    [/^Thought for ([\d smhd.]+)$/, function (_, d) { return '已思考 ' + fmtDuration(d); }],
+    [/^Edited (.*) \+(\d+) -(\d+)$/, '编辑了 $1 (+$2 -$3)'],
+    [/^(\d+) files? changed$/, '$1 个文件已更改'],
+    [/^Explored (\d+) files?$/, '浏览了 $1 个文件'],
+    [/^Explored (.+)$/, '浏览了 $1'],
+    [/^Canceled (taskkill.*)$/, '已取消 $1'],
     [/^(\d+)\s*(?:seconds?|secs?)\s+ago$/i, '$1 秒前'],
     [/^(\d+)\s*(?:minutes?|mins?)\s+ago$/i, '$1 分钟前'],
     [/^(\d+)\s*(?:hours?|hrs?)\s+ago$/i, '$1 小时前'],
@@ -141,8 +189,6 @@
     [/^You have used some of your 5-?hour limit,?\s*it will fully refresh in (.*?)\.?$/i, '您已消耗了部分 5 小时额度，将在 $1 后完全重置刷新。'],
     [/^You have hit your 5-?hour limit,?\s*it will refresh in (.*?)\.?$/i, '您已达到 5 小时上限，将在 $1 后重置刷新。'],
     [/^You have hit your weekly limit,?\s*it will refresh in (.*?)\.?$/i, '您已达到每周上限，将在 $1 后重置刷新。'],
-    [/^Your quota for this model is running low\.?$/i, '您在此模型上的剩余配额即将耗尽。'],
-    [/^Your quota for this model has run out\.?$/i, '您在此模型上的配额已耗尽。'],
     [/^Your plan's baseline quota will refresh on (.+?)\.?\s*You can upgrade to a Google AI Ultra plan to receive higher rate limits\.?$/i, '您的套餐基础配额将于 $1 重置刷新。您可以升级至 Google AI Ultra 以获取更高的请求配额与速率上限。'],
     [/^Your plan's baseline quota will refresh on (.+?)\.?\s*To continue using this model now,?\s*enable AI Credit overages\.?$/i, '您的套餐基础配额将于 $1 重置刷新。若要立即继续使用此模型，请启用 AI 额度超量使用。'],
     [/^Your plan's baseline quota will refresh on ([^.。]+)\.?$/i, '您的套餐基础配额将于 $1 重置刷新。'],
@@ -194,7 +240,6 @@
     [/^Send [Mm]essage\s+(Enter|Return|Ctrl\+Enter|Cmd\+Enter|↵)$/, '发送消息 $1'],
     [/^Send [Mm]essage\s+\((Enter|Return|Ctrl\+Enter|Cmd\+Enter|↵)\)$/, '发送消息 ($1)'],
     [/^([\d,.]+)% of the customization budget is available\.?$/i, '$1% 的自定义扩展预算可用。'],
-    [/^of the customization budget is available\.?$/i, '的自定义扩展预算可用。'],
     [/^Show (\d+) breakdowns?$/i, '显示 $1 项明细'],
     [/^Hide (\d+) breakdowns?$/i, '隐藏 $1 项明细'],
     [/^(\d+) demoted$/i, '$1 项已降级'],
@@ -226,9 +271,9 @@
     [/^All changes since (.+)$/i, '自 $1 以来的全部更改'],
     [/^(\d+) commits? to push$/i, '$1 个待推送的提交'],
     [/^(\d+) commits? to pull$/i, '$1 个待拉取的提交'],
-    [/^(?:All |全部)?scheduled tasks run as (.+?)\.?$/i, '所有计划任务均以 $1 模型运行。'],
-    [/^(?:All |全部)?plugins run as (.+?)\.?$/i, '所有插件均以 $1 模型运行。'],
-    [/^(?:All |全部)?automations run as (.+?)\.?$/i, '所有自动化任务均以 $1 模型运行。'],
+    [/^(?:All )?scheduled tasks run as (.+?)\.?$/i, '所有计划任务均以 $1 模型运行。'],
+    [/^(?:All )?plugins run as (.+?)\.?$/i, '所有插件均以 $1 模型运行。'],
+    [/^(?:All )?automations run as (.+?)\.?$/i, '所有自动化任务均以 $1 模型运行。'],
     [/^Review permissions for (.+)$/i, '审查 $1 的权限'],
     [/^(.+) needs a few details from you before it can run\.$/i, '$1 运行前需要您补充几项详细信息。'],
     [/^Agents created by (.+) run in a dedicated (?:project|workspace) with its own permissions, which you can change anytime in the (?:project|workspace) settings page\.? On top of those defaults, (.+) requests the access below\.$/i, '由 $1 创建的智能体将在专属工作区中运行并拥有独立权限，您可以随时在设置页面中更改。除默认权限外，$2 还请求以下访问权限。'],
@@ -257,12 +302,11 @@
     [/^The (.+) MCP server requires configuration parameters before it can be started\.?$/i, '$1 MCP 服务器需要先配置参数才能启动。'],
     [/^See more in (.+)$/i, '在 $1 中查看更多'],
     [/^See less in (.+)$/i, '在 $1 中收起'],
-    [/^(?:More actions|更多操作) for (.+)$/i, '$1 的更多操作'],
+    [/^More actions for (.+)$/i, '$1 的更多操作'],
     [/^(.+),\s*setup required$/i, '$1（需要配置）'],
     [/^Tool Definition:\s*(.+)$/i, '工具定义：$1'],
     [/^Invocation:\s*(.+)$/i, '调用：$1'],
     [/^Agent permissions preset selector, current:\s*(.+)$/i, '智能体权限预设选择器，当前：$1'],
-    [/^Undo to (?:this point|here)\.?$/i, '撤销到此处'],
     [/^Search tasks[.…]*$/i, '搜索任务...'],
     [/^Search conversations[.…]*$/i, '搜索对话...'],
     [/^Enter scheduled task name[.…]*$/i, '输入计划任务名称...'],
@@ -298,88 +342,181 @@
     [/^Yes, allow '([\s\S]+)'$/i, '是，允许 \'$1\''],
     // --- 归档通知与会话列表筛选 ---
     [/^View archived in the sidebar \((.+)\)\.?$/i, '在侧边栏查看已归档（$1）。'],
-    [/^View archived in the sidebar\s*\(/i, '在侧边栏查看已归档 ('],
-    [/^View archived in the sidebar$/i, '在侧边栏查看已归档'],
-    [/^menu\)\.$/i, '菜单）。'],
-    [/^menu\)$/i, '菜单)']
+    [/^View archived in the sidebar\s*\(/i, '在侧边栏查看已归档 (']
   ];
 
-  const allowLowerTokens = new Set(['today', 'yesterday', 'now', 'am', 'pm', 'week', 'month', 'verbose']);
+  const allowLowerTokens = new Set(['today', 'yesterday', 'now', 'week', 'month', 'verbose']);
   const isSingleLowerAllowed = token => allowLowerTokens.has(token) || hasOwn(userOverrides, token);
   const lookupMatch = match => (hasOwn(dictionary, match) ? dictionary[match] : dictionary[lowerIndex[match.toLowerCase()]]);
+  const puncMap = { '?': '？', '.': '。', '!': '！', ',': '，', ';': '；', ':': '：' };
+  const purePuncRegex = /^[?.!,;:]+$/;
+  const validPurePuncRegex = /^[?!]+$|^[.,;:]$/;
+  const singleLowerRegex = /^[a-z0-9_-]+$/;
+  const puncRegex = /(\.\.\.|…|\.|\?|!|:|：|？|！|。)$/;
+  const cjkRegex = /[一-龥]/;
+  const leadingCjkRegex = /^[\u4e00-\u9fff]/;
+  const suffixRuleRegex = /needs a few details from you before it can run\.?$|,\s*setup required$/i;
+  const shortTokenRegex = /[A-Za-z][A-Za-z'-]*/g;
+  const cjkSpaceRegex = /([一-龥])\s+([一-龥])/g;
+  const cjkDotRegex = /([一-龥])\.\s*(?=[一-龥])/g;
 
-  function translateString(text) {
-    if (!text) return text;
-    const trimmed = text.trim();
-    if (!trimmed) return text;
+  function countAsciiAlpha(str, start, end) {
+    let n = 0;
+    for (let i = start; i < end; i++) {
+      if (isAsciiAlphaCode(str.charCodeAt(i))) n++;
+    }
+    return n;
+  }
 
-    // --- 纯标点节点：独立渲染的英文标点转中文标点（如 DOM 拆分的 "?" 节点；保留 ".." / "..." 等多字符标点）---
-    if (/^[?.!,;:]+$/.test(trimmed)) {
-      if (!/^[?!]+$|^[.,;:]$/.test(trimmed)) return text;
-      const puncMap = { '?': '？', '.': '。', '!': '！', ',': '，', ';': '；', ':': '：' };
-      let puncOut = '';
-      for (const ch of trimmed) puncOut += puncMap[ch] || ch;
-      return text.replace(trimmed, () => puncOut);
+  function hasTwoAsciiAlpha(str, start, end) {
+    let prev = false;
+    for (let i = start; i < end; i++) {
+      const isA = isAsciiAlphaCode(str.charCodeAt(i));
+      if (isA && prev) return true;
+      prev = isA;
     }
+    return false;
+  }
 
-    // --- Dynamic Agent Logs Regex Rules (Fixed Escaping) ---
-    let dynamicMatch = trimmed;
-    let isDynamic = false;
-
-    if (/^Worked for [\d smhd.]+$/.test(trimmed)) {
-      dynamicMatch = dynamicMatch.replace(/Worked for (.+)$/, function (_, d) {
-        return '已工作 ' + fmtDuration(d);
-      });
-      isDynamic = true;
-    }
-    if (/^Thought for [\d smhd.]+$/.test(trimmed)) {
-      dynamicMatch = dynamicMatch.replace(/Thought for (.+)$/, function (_, d) {
-        return '已思考 ' + fmtDuration(d);
-      });
-      isDynamic = true;
-    }
-    if (/^Edited .* \+\d+ -\d+$/.test(trimmed)) {
-      dynamicMatch = dynamicMatch.replace(/Edited (.*) \+(\d+) -(\d+)/, '编辑了 $1 (+$2 -$3)');
-      isDynamic = true;
-    }
-    if (/^\d+ files? changed$/.test(trimmed)) {
-      dynamicMatch = dynamicMatch.replace(/^(\d+) files? changed(.*)/, '$1 个文件已更改$2');
-      isDynamic = true;
-    }
-    if (/^Explored/.test(trimmed)) {
-      if (/^Explored \d+ files?$/.test(trimmed)) {
-        dynamicMatch = dynamicMatch.replace(/^Explored (\d+) files?(.*)/, '浏览了 $1 个文件$2');
-      } else if (/^Explored (.*)$/.test(trimmed)) {
-        dynamicMatch = dynamicMatch.replace(/^Explored (.*)/, '浏览了 $1');
+  function scanLongBuckets(core) {
+    const len = core.length;
+    if (len < 4 || !buckets3.size) return null;
+    const lower = core.toLowerCase();
+    if (lower.length !== len) return null;
+    let out = '';
+    let lastIndex = 0;
+    let i = 0;
+    let longReplaced = false;
+    let longMatchedChars = 0;
+    let consecutiveAlphaInGap = 0;
+    while (i <= len - 4) {
+      const list = buckets3.get(lower.slice(i, i + 3));
+      let matchedEntry = null;
+      if (list) {
+        const prevB = i > 0 && isWordBound(core.charCodeAt(i - 1));
+        for (let j = 0; j < list.length; j++) {
+          const e = list[j];
+          if (!e.inLong) continue;
+          const end = i + e.len;
+          if (end > len) continue;
+          if (e.needL && prevB) continue;
+          if (e.needR && end < len && isWordBound(core.charCodeAt(end))) continue;
+          if (lower.startsWith(e.kl, i)) {
+            matchedEntry = e;
+            break;
+          }
+        }
       }
-      isDynamic = true;
+      if (matchedEntry) {
+        if (hasTwoAsciiAlpha(core, lastIndex, i)) return null;
+        out += core.slice(lastIndex, i) + lookupMatch(core.slice(i, i + matchedEntry.len));
+        longMatchedChars += countAsciiAlpha(core, i, i + matchedEntry.len);
+        longReplaced = true;
+        i += matchedEntry.len;
+        lastIndex = i;
+        consecutiveAlphaInGap = 0;
+      } else {
+        if (isAsciiAlphaCode(core.charCodeAt(i))) {
+          if (++consecutiveAlphaInGap >= 2) return null;
+        } else {
+          consecutiveAlphaInGap = 0;
+        }
+        i++;
+      }
     }
-    if (/^Canceled taskkill/.test(trimmed)) {
-      dynamicMatch = dynamicMatch.replace(/^Canceled (.*)/, '已取消 $1');
-      isDynamic = true;
-    }
+    if (!longReplaced || hasTwoAsciiAlpha(core, lastIndex, len)) return null;
+    const ltotalChars = countAsciiAlpha(core, 0, len);
+    if (ltotalChars > 0 && longMatchedChars / ltotalChars < 0.95) return null;
+    return out + core.slice(lastIndex);
+  }
 
-    if (isDynamic) {
-      return text.replace(trimmed, () => dynamicMatch);
+  function scanShortBuckets(core) {
+    const len = core.length;
+    if (!len) return null;
+    const lower = core.toLowerCase();
+    if (lower.length !== len) return null;
+    let out = '';
+    let lastIndex = 0;
+    let i = 0;
+    let replaced = false;
+    while (i < len) {
+      let matchedEntry = null;
+      const prevB = i > 0 && isWordBound(core.charCodeAt(i - 1));
+      if (i <= len - 3 && buckets3.size) {
+        const list3 = buckets3.get(lower.slice(i, i + 3));
+        if (list3) {
+          for (let j = 0; j < list3.length; j++) {
+            const e = list3[j];
+            if (!e.inShort) continue;
+            const end = i + e.len;
+            if (end > len) continue;
+            if (e.needL && prevB) continue;
+            if (e.needR && end < len && isWordBound(core.charCodeAt(end))) continue;
+            if (lower.startsWith(e.kl, i)) {
+              matchedEntry = e;
+              break;
+            }
+          }
+        }
+      }
+      if (!matchedEntry && buckets12.size) {
+        const list12 = buckets12.get(lower[i]);
+        if (list12) {
+          for (let j = 0; j < list12.length; j++) {
+            const e = list12[j];
+            if (!e.inShort) continue;
+            const end = i + e.len;
+            if (end > len) continue;
+            if (e.needL && prevB) continue;
+            if (e.needR && end < len && isWordBound(core.charCodeAt(end))) continue;
+            if (lower.startsWith(e.kl, i)) {
+              matchedEntry = e;
+              break;
+            }
+          }
+        }
+      }
+      if (matchedEntry) {
+        out += core.slice(lastIndex, i) + lookupMatch(core.slice(i, i + matchedEntry.len));
+        replaced = true;
+        i += matchedEntry.len;
+        lastIndex = i;
+      } else {
+        i++;
+      }
     }
-    // --- End Dynamic Regex ---
+    return replaced ? out + core.slice(lastIndex) : null;
+  }
+
+  function translateTrimmed(trimmed) {
+    // --- 纯标点节点：独立渲染的英文标点转中文标点（如 DOM 拆分的 "?" 节点；保留 ".." / "..." 等多字符标点）---
+    if (purePuncRegex.test(trimmed)) {
+      if (!validPurePuncRegex.test(trimmed)) return null;
+      let puncOut = '';
+      for (const ch of trimmed) puncOut += puncMap[ch];
+      return puncOut;
+    }
 
     // 0. 单单词全小写标识符绝对保护（防止误伤用户工程名、目录名、变量名、命令与文件名）
     // 显式写入用户自定义词典或白名单的全小写词条允许翻译；其余纯小写单词保持原文。
-    const isSingleLowerToken = /^[a-z0-9_-]+$/.test(trimmed);
+    const isSingleLowerToken = singleLowerRegex.test(trimmed);
     if (isSingleLowerToken && !isSingleLowerAllowed(trimmed)) {
-      return text;
+      return null;
     }
 
     // 1. Direct Literal Match (Exact match including punctuation)
     if (hasOwn(dictionary, trimmed)) {
-      return text.replace(trimmed, () => dictionary[trimmed]);
+      return dictionary[trimmed];
     }
 
     const trimmedLower = trimmed.toLowerCase();
     const lowerKey = lowerIndex[trimmedLower];
-    if (lowerKey !== undefined && (!isSingleLowerToken || lowerKey === trimmed)) {
-      return text.replace(trimmed, () => dictionary[lowerKey]);
+    if (lowerKey !== undefined && !isSingleLowerToken) {
+      return dictionary[lowerKey];
+    }
+
+    if (!hasNonAsciiAlphaKeys && !hasAsciiAlpha.test(trimmed)) {
+      return null;
     }
 
     // 2. Intelligent Punctuation Stripping & Reconstruction
@@ -388,7 +525,6 @@
     let matchPunc = '';
 
     // Strip trailing common punctuation
-    const puncRegex = /(\.\.\.|…|\.|\?|!|:|：|？|！|。)$/;
     const match = core.match(puncRegex);
     if (match) {
       matchPunc = match[0];
@@ -399,38 +535,37 @@
       else if (matchPunc === '?') trailPunc = '？';
       else if (matchPunc === '!') trailPunc = '！';
       else if (matchPunc === ':') trailPunc = '：';
-      else if (matchPunc === '：') trailPunc = '：';
-      else if (matchPunc === '？') trailPunc = '？';
-      else if (matchPunc === '！') trailPunc = '！';
-      else if (matchPunc === '。') trailPunc = '。';
-      else trailPunc = matchPunc; // keep ..., …
+      else trailPunc = matchPunc; // keep ..., …, ：, ？, ！, 。
     }
 
     // Check stripped core in dictionary
-    const isSingleLowerCore = /^[a-z0-9_-]+$/.test(core);
+    const isSingleLowerCore = singleLowerRegex.test(core);
     let coreTranslated;
     if (!isSingleLowerCore || isSingleLowerAllowed(core)) {
       if (hasOwn(dictionary, core)) {
         coreTranslated = dictionary[core];
       } else {
         const coreLower = core.toLowerCase();
-        const lowerKey = lowerIndex[coreLower];
-        if (lowerKey !== undefined && (!isSingleLowerCore || lowerKey === core)) {
-          coreTranslated = dictionary[lowerKey];
+        const coreLowerKey = lowerIndex[coreLower];
+        if (coreLowerKey !== undefined && !isSingleLowerCore) {
+          coreTranslated = dictionary[coreLowerKey];
         }
       }
     }
 
     if (coreTranslated !== undefined) {
-      return text.replace(trimmed, () => (coreTranslated ? coreTranslated + trailPunc : ''));
+      return coreTranslated ? coreTranslated + trailPunc : '';
     }
 
     // 2.5 动态正则规则兜底（在词典精确匹配之后执行，避免劫持已校对的词条）
+    if (leadingCjkRegex.test(trimmed) && !suffixRuleRegex.test(trimmed)) {
+      return null;
+    }
     for (var ri = 0; ri < dynamicRules.length; ri++) {
       if (dynamicRules[ri][0].test(trimmed)) {
         var ruleOut = trimmed.replace(dynamicRules[ri][0], dynamicRules[ri][1]);
         if (ruleOut !== trimmed) {
-          return text.replace(trimmed, () => ruleOut);
+          return ruleOut;
         }
       }
     }
@@ -438,7 +573,9 @@
     // 3. Fallback to word-by-word ONLY for short strings (<= 3 words)
     // 如果短语中已经包含了中文字符（即原本就是汉化内容或中英混排），则严禁进入英文分词翻译
     // 这可以完美阻止像中英文混排短语被分词规则执行二次翻译导致重叠和污染
-    const hasChinese = /[一-龥]/.test(core);
+    if (cjkRegex.test(core)) {
+      return null;
+    }
     // This prevents long unmatched sentences from getting mangled into Chinglish.
     const wordsCount = core.split(/\s+/).filter(Boolean).length;
     if (wordsCount > 3) {
@@ -446,79 +583,171 @@
       // 处理 DOM 拆分或动态拼接导致完整文本无法精确匹配的情况（如权限弹窗选项）
       // 词边界用 (?<![A-Za-z0-9-]) / (?![A-Za-z0-9-])：连字符视为单词一部分，
       // 避免 "agy-customizations"、"multi-turn" 等复合词被拆词误翻
-      let longTemp = core;
-      let longReplaced = false;
-      let longMatchedChars = 0;
-      if (longTextRegex) {
-        longTemp = core.replace(longTextRegex, function (m) {
-          longMatchedChars += (m.match(/[A-Za-z]/g) || []).length;
-          longReplaced = true;
-          return lookupMatch(m);
-        });
+      var lfinal = scanLongBuckets(core);
+      if (lfinal === null) {
+        return null; // 保持原文
       }
-      // 覆盖率门槛与纯正度防御：
-      // 如果长句中仍残留有未翻译的连续英文字母单词（如 where, in the, are saved, from the），
-      // 说明并非所有内容均有确切对应，严禁生硬拼接产生中英夹杂怪句（如 "文件夹 where 文件已下载 in the 内置浏览器 are saved"），
-      // 保持原文更为整洁。
-      var ltotalChars = (core.match(/[A-Za-z]/g) || []).length;
-      if (!longReplaced || (ltotalChars > 0 && longMatchedChars / ltotalChars < 0.95)) {
-        return text; // 保持原文
-      }
-      var remainingAlphaWords = longTemp.match(/[A-Za-z]{2,}/g) || [];
-      if (remainingAlphaWords.length > 0) {
-        return text; // 保持原文，杜绝夹杂生硬英文字词
-      }
-      var lfinal = longTemp;
-      lfinal = lfinal.replace(/([一-龥])\s+([一-龥])/g, '$1$2');
+      lfinal = lfinal.replace(cjkSpaceRegex, '$1$2');
       // 中文之间残留的英文句号转中文句号（长文本子串替换后句中常见）
-      lfinal = lfinal.replace(/([一-龥])\.\s*(?=[一-龥])/g, '$1。');
+      lfinal = lfinal.replace(cjkDotRegex, '$1。');
       if (matchPunc) {
         lfinal += trailPunc;
       }
-      return text.replace(trimmed, () => lfinal);
+      return lfinal;
     }
 
-    // 短文本：已含中文的中英混排短语不再逐词翻译，防止二次污染
-    if (hasChinese) {
-      return text;
-    }
     // 短文本单单词小写标识符保护：如果核心词是单个全小写单词且不在允许列表内，直接保持原文，防止被短文本正则泛化误翻
     if (isSingleLowerCore) {
-      return text;
+      return null;
     }
     // 全词校验门槛：短文本中每个 >=2 字母的单词都必须命中词典，
     // 否则保持原文（如 "Failed to run" 中 to 未命中 -> 整句保留英文，
     // 杜绝 "已失败 to 运行" 这类中英夹杂）。比覆盖率门槛更可预测。
-    const shortTokens = core.match(/[A-Za-z][A-Za-z'-]*/g) || [];
+    const shortTokens = core.match(shortTokenRegex) || [];
     for (var ti = 0; ti < shortTokens.length; ti++) {
       var token = shortTokens[ti];
       if (token.length < 2) continue;
       if (!(token.toLowerCase() in lowerIndex)) {
-        return text;
+        return null;
       }
     }
-    let temp = core;
-    let replaced = false;
-    if (shortTextRegex) {
-      temp = core.replace(shortTextRegex, function (m) {
-        replaced = true;
-        return lookupMatch(m);
-      });
-    }
-
-    let finalTranslated = replaced ? temp : core;
+    const shortReplaced = scanShortBuckets(core);
+    let finalTranslated = shortReplaced !== null ? shortReplaced : core;
     // 消除中文字符之间可能由分词替换残留的英文空格，提升翻译句子的连贯精致度
-    finalTranslated = finalTranslated.replace(/([一-龥])\s+([一-龥])/g, '$1$2');
+    finalTranslated = finalTranslated.replace(cjkSpaceRegex, '$1$2');
     if (matchPunc) {
       finalTranslated += trailPunc;
     }
-    return text.replace(trimmed, () => finalTranslated);
+    return finalTranslated;
+  }
+
+  function translateString(text) {
+    if (!text) return text;
+    const trimmed = text.trim();
+    if (!trimmed) return text;
+    let translated = translationCache.get(trimmed);
+    if (translated === undefined) {
+      translated = translateTrimmed(trimmed);
+      if (translationCache.size >= MAX_CACHE_SIZE) translationCache.clear();
+      translationCache.set(trimmed, translated);
+    }
+    if (translated === null || translated === trimmed) return text;
+    return text === trimmed ? translated : text.replace(trimmed, () => translated);
   }
 
   // 用于模糊匹配类名中包含代码/预览/diff相关关键词的正则
-  const codeClassPattern = /(?:^|[\s_-])(hljs|shiki|prism|monaco|codemirror|line-number|line-content|gutter|codeblock|code-block|code-view|code-preview|file-preview|file-content|syntax-highlighting)(?:$|[\s_-])/i;
+  const skipTagsSet = new Set(['SCRIPT', 'STYLE', 'CODE', 'PRE', 'NOSCRIPT', 'KBD', 'SAMP', 'VAR']);
+  const skipExactClassRegex = /(?:^|\s)(?:token|cursor-edit|mention-menu|slash-menu|slash-command|monaco-editor|editor-instance|xterm|terminal-instance|input-area|chat-input)(?=$|\s)/;
+  const truncateClassRegex = /(?:^|\s)truncate(?=$|\s)/;
+  const whitespaceNowrapRegex = /(?:^|\s)whitespace-nowrap(?=$|\s)/;
+  const codeClassPattern = /code-line|(?:^|[\s_-])(?:select-contain|hljs|shiki|prism|monaco|codemirror|line-number|line-content|gutter|codeblock|code-block|code-view|code-preview|file-preview|file-content|syntax-highlighting)(?:$|[\s_-])/i;
+  const skipDataAttrs = [
+    'data-language', 'data-code', 'data-line', 'data-line-number',
+    'data-project-name', 'data-project-card', 'data-project-label', 'data-repo-slug',
+    'data-card-name', 'data-member-name', 'data-symbol-name', 'data-variable-name',
+    'data-file-uri', 'data-uri', 'data-turn-content', 'data-diff',
+    'data-current-original-line', 'data-current-modified-line', 'data-arg-key',
+    'data-arg-type', 'data-slug-base', 'data-mention-menu',
+    'data-lexical-beautiful-mention', 'data-slash-menu'
+  ];
+  const skipTestIds = new Set([
+    'planner-response-text', 'artifact-view', 'project-selector-trigger',
+    'project-selector-item', 'project-header', 'conversation-navigator-card',
+    'sidecar-project-link', 'command-menu'
+  ]);
+  const triggerTestIds = new Set([
+    'thinking-collapsible-trigger', 'worked-for-collapsible', 'tool-group-collapsible'
+  ]);
 
-  const skipTags = ['SCRIPT', 'STYLE', 'CODE', 'PRE', 'NOSCRIPT', 'KBD', 'SAMP', 'VAR'];
+  function classifyElement(cur) {
+    if (cur.id === 'ag-live-metrics-pill' || cur.id === 'ag-live-metrics-tooltip') return 'skip';
+    // 4a0. 标签若为代码或脚本标签（PRE, CODE, KBD, SAMP 等），绝对跳过！
+    if (cur.tagName && skipTagsSet.has(cur.tagName)) {
+      return 'skip';
+    }
+    // 4a. contenteditable 区域
+    if (cur.isContentEditable) {
+      return 'skip';
+    }
+    // 4a0b / 4b2 / 4b4 / 4d / 4e. 类名检查
+    const cn = cur.className;
+    if (typeof cn === 'string') {
+      if (cn.length > 0) {
+        if (skipExactClassRegex.test(cn) || codeClassPattern.test(cn)) {
+          return 'skip';
+        }
+        if (truncateClassRegex.test(cn)) {
+          const p = cur.parentElement;
+          if (p) {
+            const pcn = p.className;
+            if (typeof pcn === 'string'
+                ? whitespaceNowrapRegex.test(pcn)
+                : (p.classList && p.classList.contains('whitespace-nowrap'))) {
+              return 'skip'; // 跳过智能体动态生成的工具调用摘要
+            }
+          }
+        }
+      }
+    } else if (cur.classList) {
+      if (cur.classList.contains('token') ||
+          cur.classList.contains('cursor-edit') ||
+          cur.classList.contains('mention-menu') ||
+          cur.classList.contains('slash-menu') ||
+          cur.classList.contains('slash-command') ||
+          cur.classList.contains('monaco-editor') ||
+          cur.classList.contains('editor-instance') ||
+          cur.classList.contains('xterm') ||
+          cur.classList.contains('terminal-instance') ||
+          cur.classList.contains('input-area') ||
+          cur.classList.contains('chat-input')) {
+        return 'skip';
+      }
+      if (cur.classList.contains('truncate')) {
+        const p = cur.parentElement;
+        if (p && p.classList && p.classList.contains('whitespace-nowrap')) {
+          return 'skip';
+        }
+      }
+    }
+    // 原生 DOM 上若无属性或仅有 class 属性，直接跳过全部 getAttribute 查询
+    const domAttrs = cur.attributes;
+    if (domAttrs !== undefined && (domAttrs.length === 0 || (domAttrs.length === 1 && domAttrs[0].name === 'class'))) {
+      return 'normal';
+    }
+    if (cur.getAttribute) {
+      const editable = cur.getAttribute('contenteditable');
+      if (editable !== null && editable !== undefined) {
+        const edLower = editable.toLowerCase();
+        if (edLower === '' || edLower === 'true' || edLower === 'plaintext-only') {
+          return 'skip';
+        }
+      }
+      if (cur.getAttribute('role') === 'code') {
+        return 'skip';
+      }
+      for (let i = 0; i < skipDataAttrs.length; i++) {
+        if (cur.getAttribute(skipDataAttrs[i]) !== null) {
+          return 'skip';
+        }
+      }
+      const testId = cur.getAttribute('data-testid');
+      if (testId) {
+        if (skipTestIds.has(testId) ||
+            testId.startsWith('mention-menu') ||
+            testId.startsWith('slash-command') ||
+            testId.startsWith('slash-menu')) {
+          return 'skip';
+        }
+        if (triggerTestIds.has(testId)) {
+          return 'trigger';
+        }
+        if (testId === 'thinking-collapsible') {
+          return 'thinking';
+        }
+      }
+    }
+    return 'normal';
+  }
 
   // translate: translate content; children: traverse only; skip: prune subtree.
   function getTranslationScope(node) {
@@ -540,154 +769,10 @@
     let allowThinkingTrigger = false;
     let skipContent = false;
     while (cur) {
-      if (cur.id === 'ag-live-metrics-pill' || cur.id === 'ag-live-metrics-tooltip') return 'skip';
-      // 4a0. 祖先标签若为代码或脚本标签（PRE, CODE, KBD, SAMP 等），绝对跳过！
-      if (cur.tagName && skipTags.includes(cur.tagName)) {
-        return 'skip';
-      }
-
-      // 4a0b. 语法高亮代码 token 元素（如 Prism/Shiki/hljs token），绝对跳过
-      if (cur.classList && cur.classList.contains('token')) {
-        return 'skip';
-      }
-
-      // 4a. contenteditable 区域
-      const editable = cur.getAttribute && cur.getAttribute('contenteditable');
-      if (cur.isContentEditable || (editable !== null && editable !== undefined &&
-          ['', 'true', 'plaintext-only'].includes(editable.toLowerCase()))) {
-        return 'skip';
-      }
-
-      // 4b. 检查 data 属性（代码块语言标记等）
-      if (cur.getAttribute) {
-        if (cur.getAttribute('data-language') !== null ||
-            cur.getAttribute('data-code') !== null ||
-            cur.getAttribute('data-line') !== null ||
-            cur.getAttribute('data-line-number') !== null) {
-          return 'skip';
-        }
-      }
-
-      // 4b2. 思考链/模型回复正文/工具调用摘要保护：
-      //      - 模型生成的自由思考链（.cursor-edit）、回复正文、工件视图属于动态自由文本，严禁局部词汇机翻。
-      //      - 工具调用步骤中，仅放行系统动词前缀（如 Ran -> 已运行、Running -> 正在运行），
-      //        而工具调用摘要正文（toolSummary，具有 .truncate 且父级为 .whitespace-nowrap）必须完全保留英文原文。
-      //      - 「已思考 X 秒」触发药丸是系统 UI，放行汉化。
-      if (cur.classList && cur.classList.contains('cursor-edit')) {
-        return 'skip';
-      }
-      if (cur.classList && cur.classList.contains('truncate')) {
-        const p = cur.parentElement;
-        if (p && p.classList && p.classList.contains('whitespace-nowrap')) {
-          return 'skip'; // 跳过智能体动态生成的工具调用摘要
-        }
-      }
-      if (cur.getAttribute) {
-        const testId = cur.getAttribute('data-testid');
-        if (testId === 'thinking-collapsible-trigger' ||
-            testId === 'worked-for-collapsible' ||
-            testId === 'tool-group-collapsible') {
-          allowThinkingTrigger = true;
-        }
-        if (testId === 'thinking-collapsible' && !allowThinkingTrigger) {
-          skipContent = true;
-        }
-        if (testId === 'planner-response-text' ||
-            testId === 'artifact-view') {
-          return 'skip';
-        }
-      }
-
-      // 4b3. 用户实体数据保护：项目名称、工作区名称、代码仓库、符号变量、文件路径、代码Diff、消息内容等用户自定义数据容器
-      if (cur.getAttribute) {
-        if (cur.getAttribute('data-project-name') !== null ||
-            cur.getAttribute('data-project-card') !== null ||
-            cur.getAttribute('data-project-label') !== null ||
-            cur.getAttribute('data-repo-slug') !== null ||
-            cur.getAttribute('data-card-name') !== null ||
-            cur.getAttribute('data-member-name') !== null ||
-            cur.getAttribute('data-symbol-name') !== null ||
-            cur.getAttribute('data-variable-name') !== null ||
-            cur.getAttribute('data-file-uri') !== null ||
-            cur.getAttribute('data-uri') !== null ||
-            cur.getAttribute('data-turn-content') !== null ||
-            cur.getAttribute('data-diff') !== null ||
-            cur.getAttribute('data-current-original-line') !== null ||
-            cur.getAttribute('data-current-modified-line') !== null ||
-            cur.getAttribute('data-arg-key') !== null ||
-            cur.getAttribute('data-arg-type') !== null ||
-            cur.getAttribute('data-slug-base') !== null) {
-          return 'skip';
-        }
-        const testId = cur.getAttribute('data-testid');
-        if (testId) {
-          if (testId === 'project-selector-trigger' ||
-              testId === 'project-selector-item' ||
-              testId === 'project-header' ||
-              testId === 'conversation-navigator-card' ||
-              testId === 'sidecar-project-link') {
-            return 'skip';
-          }
-        }
-      }
-
-      // 4b4. 快捷指令与提及菜单保护：保持英文原版，不执行翻译
-      if (cur.getAttribute) {
-        if (cur.getAttribute('data-mention-menu') !== null ||
-            cur.getAttribute('data-lexical-beautiful-mention') !== null ||
-            cur.getAttribute('data-slash-menu') !== null) {
-          return 'skip';
-        }
-        const testId = cur.getAttribute('data-testid');
-        if (testId && (
-            testId.startsWith('mention-menu') ||
-            testId.startsWith('slash-command') ||
-            testId.startsWith('slash-menu') ||
-            testId === 'command-menu'
-        )) {
-          return 'skip';
-        }
-      }
-      if (cur.classList && (
-          cur.classList.contains('mention-menu') ||
-          cur.classList.contains('slash-menu') ||
-          cur.classList.contains('slash-command')
-      )) {
-        return 'skip';
-      }
-
-      // 4c. 检查 role 属性
-      if (cur.getAttribute) {
-        const role = cur.getAttribute('role');
-        if (role === 'code') {
-          return 'skip';
-        }
-      }
-
-      // 4d. 精确类名匹配 — 已知的编辑器/终端/输入区域
-      if (cur.classList && (
-        cur.classList.contains('monaco-editor') ||
-        cur.classList.contains('editor-instance') ||
-        cur.classList.contains('xterm') ||
-        cur.classList.contains('terminal-instance') ||
-        cur.classList.contains('input-area') ||
-        cur.classList.contains('chat-input')
-      )) {
-        return 'skip';
-      }
-
-      // 4e. 类名匹配 — 精确与模糊检测（高精度防御，防止 Tailwind 选择器如 [&_code] 引起的误杀）
-      if (cur.className && typeof cur.className === 'string') {
-        const lowerClass = cur.className.toLowerCase();
-        if (
-          lowerClass.includes('code-line') ||
-          /(?:^|[\s_-])select-contain(?:$|[\s_-])/i.test(cur.className) ||
-          codeClassPattern.test(cur.className)
-        ) {
-          return 'skip';
-        }
-      }
-
+      const kind = classifyElement(cur);
+      if (kind === 'skip') return 'skip';
+      if (kind === 'trigger') allowThinkingTrigger = true;
+      else if (kind === 'thinking' && !allowThinkingTrigger) skipContent = true;
       cur = cur.parentElement || (cur.getRootNode && cur.getRootNode().host);
     }
 
@@ -699,53 +784,80 @@
   const shadowRoots = new WeakMap();
   const observedRoots = new WeakMap();
   const translatedAttributes = ['placeholder', 'title', 'aria-label'];
+  const translatedAttributesSet = new Set(translatedAttributes);
 
   function translateTextNode(node) {
     const current = node.nodeValue;
     const state = textStates.get(node);
+    if (state && current === state.last && state.version === dictVersion) return;
     const original = state && current === state.last ? state.original : current;
     const translated = translateString(original);
-    textStates.set(node, { original, last: translated });
+    textStates.set(node, { original, last: translated, version: dictVersion });
     if (current !== translated) node.nodeValue = translated;
   }
 
   function translateAttribute(node, name) {
-    if (!translatedAttributes.includes(name)) return;
+    if (!translatedAttributesSet.has(name)) return;
+    const current = node.getAttribute(name);
     let states = attributeStates.get(node);
+    if (current === null) {
+      if (states) delete states[name];
+      return;
+    }
+    const state = states ? states[name] : undefined;
+    if (state && current === state.last && state.version === dictVersion) return;
     if (!states) {
       states = Object.create(null);
       attributeStates.set(node, states);
     }
-    const current = node.getAttribute(name);
-    if (current === null) {
-      delete states[name];
-      return;
-    }
-    const state = states[name];
     const original = state && current === state.last ? state.original : current;
     const translated = translateString(original);
-    states[name] = { original, last: translated };
+    states[name] = { original, last: translated, version: dictVersion };
     if (current !== translated) node.setAttribute(name, translated);
   }
 
-  function translateNode(node) {
-    // Thinking containers must be traversed to reach their UI triggers, but
-    // their prose remains protected. All other exclusions still prune subtrees.
-    const scope = getTranslationScope(node);
-    if (scope === 'skip') return;
+  function translateNode(node, inheritedScope) {
+    if (!node) return;
+    let scope;
+    if (inheritedScope === undefined) {
+      // Thinking containers must be traversed to reach their UI triggers, but
+      // their prose remains protected. All other exclusions still prune subtrees.
+      scope = getTranslationScope(node);
+      if (scope === 'skip') return;
+    } else if (node.nodeType === Node.TEXT_NODE) {
+      const parent = node.parentElement;
+      if (parent && (parent.tagName === 'INPUT' || parent.tagName === 'TEXTAREA')) return;
+      scope = inheritedScope;
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const kind = classifyElement(node);
+      if (kind === 'skip') return;
+      scope = kind === 'trigger' ? 'translate' : kind === 'thinking' ? 'children' : inheritedScope;
+    } else if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+      scope = inheritedScope;
+    } else {
+      return;
+    }
+
     const skipContent = scope === 'children';
     if (node.nodeType === Node.TEXT_NODE) {
       if (!skipContent) translateTextNode(node);
     } else if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
       if (node.nodeType === Node.ELEMENT_NODE) {
-        if (!skipContent) translatedAttributes.forEach(attr => translateAttribute(node, attr));
+        if (!skipContent) {
+          for (let i = 0; i < translatedAttributes.length; i++) {
+            translateAttribute(node, translatedAttributes[i]);
+          }
+        }
         const shadow = node.shadowRoot || shadowRoots.get(node);
         if (shadow) {
-          translateNode(shadow);
+          translateNode(shadow, scope);
           observeRoot(shadow);
         }
       }
-      for (const child of node.childNodes) translateNode(child);
+      const children = node.childNodes;
+      for (let i = 0; i < children.length; i++) {
+        translateNode(children[i], scope);
+      }
     }
   }
 
@@ -765,17 +877,38 @@
         try {
           if (mutation.type === 'childList') {
             mutation.addedNodes.forEach(node => added.add(node));
-          } else if (getTranslationScope(mutation.target) === 'translate') {
-            if (mutation.type === 'characterData') translateTextNode(mutation.target);
-            else if (mutation.type === 'attributes') translateAttribute(mutation.target, mutation.attributeName);
+          } else if (mutation.type === 'characterData') {
+            const state = textStates.get(mutation.target);
+            if (state && mutation.target.nodeValue === state.last && state.version === dictVersion) continue;
+            if (getTranslationScope(mutation.target) === 'translate') translateTextNode(mutation.target);
+          } else if (mutation.type === 'attributes') {
+            const states = attributeStates.get(mutation.target);
+            const state = states && states[mutation.attributeName];
+            if (state && mutation.target.getAttribute(mutation.attributeName) === state.last && state.version === dictVersion) continue;
+            if (getTranslationScope(mutation.target) === 'translate') translateAttribute(mutation.target, mutation.attributeName);
           }
         } catch (error) {
           console.error('Observer translation error:', error);
         }
       }
-      for (const node of added) {
-        try { translateNode(node); }
-        catch (error) { console.error('Observer translation error:', error); }
+      if (added.size > 1) {
+        for (const node of added) {
+          let p = node.parentElement;
+          let covered = false;
+          while (p) {
+            if (added.has(p)) { covered = true; break; }
+            p = p.parentElement;
+          }
+          if (!covered) {
+            try { translateNode(node); }
+            catch (error) { console.error('Observer translation error:', error); }
+          }
+        }
+      } else {
+        for (const node of added) {
+          try { translateNode(node); }
+          catch (error) { console.error('Observer translation error:', error); }
+        }
       }
     });
     observedRoots.set(root, observer);
@@ -792,6 +925,7 @@
 
   function startObserver() {
     if (!document.body) return;
+    observerStarted = true;
     if (metricsEnabled) {
       initMetrics();
     }
@@ -800,8 +934,8 @@
     observeRoot(document.body);
   }
 
-  rebuildDict(Object.create(null));
   loadExternalDict();
+  if (!dictionary) rebuildDict(Object.create(null));
   watchExternalDict();
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', startObserver, { once: true });

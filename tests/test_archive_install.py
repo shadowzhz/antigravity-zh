@@ -390,6 +390,8 @@ class InstallTests(unittest.TestCase):
         original_archive = self.archive.read_bytes()
         original_main = asar.read_file(self.archive, 'dist/main.js')
         install.cmd_install(str(self.archive), str(self.archive.parent), metrics=True)
+        self.assertIn(b'const metricsEnabled = true;', asar.read_file(self.archive, 'dist/preload.js'))
+        self.assertIn(b'const metricsEnabled = false;', asar.read_file(self.archive, 'dist/ideInstall/wizardPreload.js'))
         with_metrics = self.archive.read_bytes()
         install.cmd_install(str(self.archive), str(self.archive.parent), metrics=True)
         self.assertEqual(with_metrics, self.archive.read_bytes())
@@ -403,6 +405,41 @@ class InstallTests(unittest.TestCase):
         self.assertIn('实时指标: 未启用', self.output.getvalue())
         self.run_restore()
         self.assertEqual(original_archive, self.archive.read_bytes())
+
+    def test_reinstall_rebuilds_main_process_patches_from_backup(self):
+        src = self.root / 'menu-src'
+        resources = self.root / 'menu-resources'
+        resources.mkdir()
+        files = {
+            'dist/preload.js': 'globalThis.fixture = "menu";\n',
+            'dist/main.js': "module.exports = {title: 'Confirm Quit'};\n",
+            'dist/menu.js': 'electron_1.Menu.setApplicationMenu(menu);\n',
+        }
+        for name, data in files.items():
+            target = src / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(data, encoding='utf-8')
+        archive = resources / 'app.asar'
+        asar.pack(src, archive)
+
+        # Simulate an older patched install with stale menu translation and extra legacy line in main.js.
+        stale_src = self.root / 'stale-src'
+        asar.extract(archive, stale_src)
+        install.patch_file(str(stale_src / 'dist/preload.js'), {'Settings': '设置'})
+        (stale_src / 'dist/menu.js').write_text(
+            'electron_1.Menu.setApplicationMenu(menu);\nfunction translateMenu() {}\nconst legacyMenu = true;\n',
+            encoding='utf-8',
+        )
+        stale_asar = self.root / 'stale.asar'
+        asar.pack(stale_src, stale_asar)
+        shutil.copy2(archive, str(archive) + '.bak')
+        shutil.copy2(stale_asar, archive)
+
+        install.cmd_install(str(archive), str(archive.parent))
+        rebuilt_menu = asar.read_file(archive, 'dist/menu.js').decode('utf-8')
+        self.assertNotIn('legacyMenu', rebuilt_menu)
+        self.assertIn('menuTranslationMap', rebuilt_menu)
+        self.assertIn('确认退出', asar.read_file(archive, 'dist/main.js').decode('utf-8'))
 
     def test_quit_dialog_marks_partial_match_and_stays_idempotent(self):
         dist = self.root / 'dist'

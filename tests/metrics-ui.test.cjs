@@ -18,22 +18,16 @@ function harness(id = A, unsupported = false) {
   class Element extends Target {
     constructor(tag = 'div') {
       super(); this.tagName = tag; this.children = []; this.attrs = {}; this.style = {};
-      this.parentElement = null; this._text = ''; this.offsetWidth = 100; this.offsetHeight = 160; this.clientWidth = 900;
+      this.parentElement = null; this._text = ''; this.offsetWidth = 100; this.offsetHeight = 160;
     }
     get textContent() { return this._text + this.children.map(child => child.textContent).join(''); }
     set textContent(value) { this.replaceChildren(); this._text = String(value); }
-    get scrollWidth() { return this.textContent.length * 6; }
     get firstElementChild() { return this.children[0]; }
-    get previousElementSibling() { return this.parentElement?.children[this.parentElement.children.indexOf(this) - 1]; }
     get isConnected() { return this === body || !!this.parentElement?.isConnected; }
     appendChild(child) { child.remove(); child.parentElement = this; this.children.push(child); return child; }
     remove() {
       if (this.parentElement) this.parentElement.children.splice(this.parentElement.children.indexOf(this), 1);
       this.parentElement = null;
-    }
-    after(child) {
-      child.remove(); child.parentElement = this.parentElement;
-      this.parentElement.children.splice(this.parentElement.children.indexOf(this) + 1, 0, child);
     }
     replaceChildren() { for (const child of this.children) child.parentElement = null; this.children = []; this._text = ''; }
     setAttribute(key, value) { this.attrs[key] = String(value); }
@@ -43,6 +37,7 @@ function harness(id = A, unsupported = false) {
     querySelector(selector) { return selector === '.agy-composer-footer' ? this.children.find(child => child.className === 'agy-composer-footer') : null; }
     querySelectorAll() { return []; }
     closest() { return null; }
+    contains(node) { return node === this || this.children.some(child => child.contains(node)); }
   }
   const body = new Element('body'), document = new Target(), window = new Target();
   document.body = body; document.hidden = false;
@@ -54,7 +49,7 @@ function harness(id = A, unsupported = false) {
   window.innerWidth = 1000; window.innerHeight = 800;
   const timers = new Map(), requests = [], observers = [];
   let nextTimer = 0;
-  const context = vm.createContext({ document, window, URLSearchParams, metricsCss: '', getComputedStyle: () => ({ columnGap: '4px' }),
+  const context = vm.createContext({ document, window, URLSearchParams, metricsCss: '',
     setTimeout(fn, delay) { timers.set(++nextTimer, { fn, delay }); return nextTimer; },
     clearTimeout(id) { timers.delete(id); },
     MutationObserver: class {
@@ -69,17 +64,17 @@ function harness(id = A, unsupported = false) {
       } } };
     },
   });
-  function composer(width = 900) {
+  function composer() {
     const old = document.getElementById('antigravity.agentSidePanelInputBox'); if (old) old.remove();
     const box = body.appendChild(new Element()); box.id = 'antigravity.agentSidePanelInputBox';
-    const row = box.appendChild(new Element()); row.className = 'agy-composer-footer'; row.clientWidth = width;
+    const row = box.appendChild(new Element()); row.className = 'agy-composer-footer';
     row.appendChild(new Element()).appendChild(new Element()); row.appendChild(new Element());
     return row;
   }
   let row = composer();
   vm.runInContext(source + '\ninitMetrics();', context);
   return { context, document, window, requests, timers, observers, get row() { return row; },
-    composer(width) { row = composer(width); return row; },
+    composer() { row = composer(); return row; },
     get pill() { return document.getElementById('ag-live-metrics-pill'); },
     get tooltip() { return document.getElementById('ag-live-metrics-tooltip'); },
     route(id) { window.location.pathname = id ? '/c/' + id : '/'; observers[0].callback([{ target: body }]); },
@@ -116,18 +111,39 @@ test('home and empty data stay hidden, route responses never leak across convers
   h.route(''); assert.equal(h.pill.style.display, 'none');
 });
 
-test('capsule survives composer replacement, wraps, and offers focus/Escape details', async () => {
+test('capsule stays inline across composer replacement and toggles details on click without hover popups', async () => {
   const h = harness(); await settle(); h.requests[0].resolve(metrics()); await settle();
   assert.equal(h.row.getAttribute('data-ag-row-mode'), 'middle');
   assert.match(h.pill.textContent, /50 tok\/s/);
-  assert.match(h.tooltip.textContent, /33.3%/);
-  h.pill.fire('focus'); assert.equal(h.tooltip.getAttribute('data-visible'), '1');
+  assert.match(h.pill.textContent, /首字 0\.5 秒/);
+  assert.match(h.pill.textContent, /输出 100/);
+  assert.doesNotMatch(h.pill.textContent, /上下文|参考256k/);
+  assert.match(h.tooltip.textContent, /上下文 \/ 参考容量/);
+  assert.match(h.tooltip.textContent, /3,000 \/ 256,000/);
+  assert.match(h.tooltip.textContent, /33\.3%/);
+  h.pill.fire('mouseenter'); h.pill.fire('focus');
+  assert.equal(h.tooltip.getAttribute('data-visible'), null);
+  assert.equal(h.pill.getAttribute('aria-expanded'), 'false');
+  h.pill.fire('click');
+  assert.equal(h.tooltip.getAttribute('data-visible'), '1');
+  assert.equal(h.pill.getAttribute('aria-expanded'), 'true');
+  h.document.fire('pointerdown', { target: h.tooltip });
+  assert.equal(h.tooltip.getAttribute('data-visible'), '1');
+  h.document.fire('pointerdown', { target: h.document.body });
+  assert.equal(h.tooltip.getAttribute('data-visible'), null);
+  assert.equal(h.pill.getAttribute('aria-expanded'), 'false');
+  h.pill.fire('keydown', { key: 'Enter', preventDefault() {} });
+  assert.equal(h.tooltip.getAttribute('data-visible'), '1');
   h.window.fire('keydown', { key: 'Escape' }); assert.equal(h.tooltip.getAttribute('data-visible'), null);
-  h.pill.fire('blur'); h.pill.fire('focus'); assert.equal(h.tooltip.getAttribute('data-visible'), '1');
-  h.composer(250); h.observers[0].callback([{ target: h.document.body }]); h.flush(80);
-  assert.equal(h.row.getAttribute('data-ag-row-mode'), 'bottom');
-  assert.equal(h.pill.previousElementSibling, h.row);
+  h.pill.fire('click'); assert.equal(h.tooltip.getAttribute('data-visible'), '1');
+  h.document.fire('pointerdown', { target: h.pill });
+  assert.equal(h.tooltip.getAttribute('data-visible'), '1');
+  h.pill.fire('click'); assert.equal(h.tooltip.getAttribute('data-visible'), null);
+  h.pill.fire('keydown', { key: ' ', preventDefault() {} });
+  assert.equal(h.tooltip.getAttribute('data-visible'), '1');
+  h.pill.fire('click'); assert.equal(h.tooltip.getAttribute('data-visible'), null);
   h.composer(); h.observers[0].callback([{ target: h.document.body }]); h.flush(80);
+  assert.equal(h.row.getAttribute('data-ag-row-mode'), 'middle');
   assert.equal(h.pill.parentElement, h.row.children[0]);
   assert.equal(h.requests.length, 1);
 });
@@ -139,6 +155,7 @@ test('hidden windows pause polls and unload disconnects resources', async () => 
   h.document.hidden = false; h.document.fire('visibilitychange'); await settle(); assert.equal(h.requests.length, 2);
   h.requests[1].resolve(metrics()); await settle();
   h.window.fire('unload'); assert.equal(h.timers.size, 0); assert.equal(h.observers[0].disconnected, true);
+  assert.equal(h.document.events.get('pointerdown').length, 0);
   assert.equal(h.pill, undefined);
 });
 
